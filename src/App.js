@@ -15,7 +15,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
   getFirestore,
   collection,
@@ -40,19 +39,16 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "my-wardrobe-app";
 
 export default function App() {
-  const [user, setUser] = useState(null);
   const [clothes, setClothes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [viewUid] = useState(() =>
-    new URLSearchParams(window.location.search).get("view")
+  // 判斷是否為訪客模式 (?view=shared)
+  const [isReadOnly] = useState(() =>
+    new URLSearchParams(window.location.search).get("view") === "shared"
   );
-  const isReadOnly = viewUid && (!user || viewUid !== user.uid);
 
   const [filterBrand, setFilterBrand] = useState("全部");
   const [filterStatus, setFilterStatus] = useState("全部");
@@ -84,30 +80,16 @@ export default function App() {
   };
   const [newItem, setNewItem] = useState(defaultFormState);
 
-  // --- Firebase 驗證與讀取 ---
+  // --- Firebase 讀取資料 ---
   useEffect(() => {
-    signInAnonymously(auth).catch((err) => console.error("登入失敗:", err));
-    return onAuthStateChanged(auth, setUser);
-  }, []);
-
-  useEffect(() => {
-    if (!user || !db) return;
-    const targetUid = viewUid || user.uid;
-
-    const clothesRef = collection(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      `wardrobe_${targetUid}`
-    );
+    // 讀取所有衣物
+    const clothesRef = collection(db, "clothes");
     const unsubscribeClothes = onSnapshot(
       clothesRef,
       (snapshot) => {
         const data = snapshot.docs
           .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .sort((a, b) => b.createdAt - a.createdAt);
+          .sort((a, b) => b.createdAt - a.createdAt); // 依時間新到舊排序
         setClothes(data);
         setIsLoading(false);
       },
@@ -117,15 +99,8 @@ export default function App() {
       }
     );
 
-    const settingsRef = doc(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      `wardrobe_settings_${targetUid}`,
-      "header"
-    );
+    // 讀取標題設定
+    const settingsRef = doc(db, "settings", "header");
     const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
       if (docSnap.exists()) setHeaderInfo(docSnap.data());
     });
@@ -134,7 +109,7 @@ export default function App() {
       unsubscribeClothes();
       unsubscribeSettings();
     };
-  }, [user, viewUid]);
+  }, []);
 
   // --- 篩選 ---
   const brands = useMemo(() => {
@@ -161,15 +136,7 @@ export default function App() {
   const handleSaveHeader = async () => {
     try {
       await setDoc(
-        doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          `wardrobe_settings_${user.uid}`,
-          "header"
-        ),
+        doc(db, "settings", "header"),
         {
           title: editHeaderInfo.title || "My Wardrobe",
           subtitle: editHeaderInfo.subtitle || "兒童服飾與穿搭紀錄本",
@@ -213,12 +180,10 @@ export default function App() {
           resolve(canvas.toDataURL("image/jpeg", 0.65));
         };
         img.onerror = () => {
-          showToast("圖片解析失敗。");
           resolve(null);
         };
       };
       reader.onerror = () => {
-        showToast("讀取檔案失敗。");
         resolve(null);
       };
     });
@@ -275,16 +240,11 @@ export default function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!user) {
-      alert("⚠️ 系統連線中，請稍等再試！(請確認是否在新視窗開啟)");
-      return;
-    }
     if (!newItem.image && !newItem.brand) {
       showToast("請上傳照片或輸入品牌！");
       return;
     }
 
-    const targetUid = user.uid;
     const dataToSave = {
       ...newItem,
       brand: newItem.brand || "未分類",
@@ -294,31 +254,13 @@ export default function App() {
 
     try {
       if (editingId) {
-        await updateDoc(
-          doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            `wardrobe_${targetUid}`,
-            editingId
-          ),
-          dataToSave
-        );
+        await updateDoc(doc(db, "clothes", editingId), dataToSave);
         showToast("✅ 已儲存修改！");
       } else {
-        await addDoc(
-          collection(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            `wardrobe_${targetUid}`
-          ),
-          { ...dataToSave, createdAt: Date.now() }
-        );
+        await addDoc(collection(db, "clothes"), {
+          ...dataToSave,
+          createdAt: Date.now(),
+        });
         showToast("✅ 已加入圖庫！");
       }
       setNewItem(defaultFormState);
@@ -332,17 +274,7 @@ export default function App() {
   const handleDelete = async (e, id) => {
     e.stopPropagation();
     try {
-      await deleteDoc(
-        doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          `wardrobe_${user.uid}`,
-          id
-        )
-      );
+      await deleteDoc(doc(db, "clothes", id));
       showToast("🗑️ 已刪除。");
     } catch (error) {
       showToast("刪除失敗。");
@@ -350,7 +282,8 @@ export default function App() {
   };
 
   const handleShare = () => {
-    const shareUrl = `${window.location.origin}${window.location.pathname}?view=${user.uid}`;
+    // 產生訪客專用的連結
+    const shareUrl = `${window.location.origin}${window.location.pathname}?view=shared`;
     const el = document.createElement("textarea");
     el.value = shareUrl;
     document.body.appendChild(el);
@@ -467,7 +400,7 @@ export default function App() {
       <div className="max-w-5xl mx-auto">
         {isReadOnly && (
           <div className="bg-[#d4c4b7]/30 text-stone-700 p-3 rounded-xl mb-6 flex items-center justify-center gap-2 text-sm font-medium border">
-            <Info size={18} /> 訪客瀏覽模式，無法編輯圖庫。
+            <Info size={18} /> 訪客瀏覽模式，無法新增或編輯。
           </div>
         )}
 
