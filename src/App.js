@@ -75,7 +75,6 @@ export default function App() {
   const defaultFormState = {
     brand: "",
     size: "",
-    season: "四季",
     status: "未售出",
     notes: "",
     image: null,
@@ -338,20 +337,14 @@ export default function App() {
     showToast("鑑賞連結已複製！現在朋友點開都能看到圖片了");
   };
 
+  // --- 改良版狀態色系：四種不同質感的莫蘭迪/清水模色 ---
   const getStatusColor = (status) => {
     switch (status) {
-      case "售出": return "text-[#76848F] border-[#D0D9DF] bg-[#F0F4F5]"; 
-      case "待售": return "text-[#A88265] border-[#E8D4C8] bg-[#FDF8F5]"; 
-      case "囤貨": return "text-[#8CA1A5] border-[#DCE4E8] bg-[#F5F8F9]"; 
-      default: return "text-[#AF7C83] border-[#F0D5D8] bg-[#FDF7F8]"; 
-    }
-  };
-
-  const getSeasonColor = (season) => {
-    switch (season) {
-      case "春夏": return "text-[#8F9CAE] border-[#DDE3ED] bg-[#F5F7FA]"; 
-      case "秋冬": return "text-[#9E8B7A] border-[#E6DDD5] bg-[#FCFAF8]"; 
-      default: return "text-[#96938D] border-[#E0DED9] bg-[#F9F8F6]"; 
+      case "未售出": return "text-[#6E8F7A] border-[#D1E0D6] bg-[#F1F7F3]"; // 莫蘭迪綠
+      case "囤貨": return "text-[#728491] border-[#CFD8E1] bg-[#F2F6F9]"; // 灰藍色
+      case "待售": return "text-[#B8866D] border-[#EBD6C8] bg-[#FBF5F1]"; // 奶茶磚色
+      case "售出": return "text-[#7B7B7B] border-[#D6D6D6] bg-[#F4F4F4]"; // 質感灰
+      default: return "text-[#AF7C83] border-[#F0D5D8] bg-[#FDF7F8]"; // 玫瑰粉 (防呆)
     }
   };
 
@@ -511,11 +504,6 @@ export default function App() {
                 {/* 右側資訊區 */}
                 <div className="w-full md:w-[45%] p-6 md:p-12 flex flex-col bg-white overflow-y-auto max-h-[50vh] md:max-h-full">
                   <div className="flex flex-wrap gap-2.5 mb-5 md:mb-6">
-                    {selectedItem.season && (
-                      <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getSeasonColor(selectedItem.season)}`}>
-                        {selectedItem.season}
-                      </span>
-                    )}
                     {selectedItem.status && (
                       <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getStatusColor(selectedItem.status)}`}>
                         {selectedItem.status}
@@ -614,7 +602,6 @@ export default function App() {
                       <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                         主要相片
                       </label>
-                      {/* 響應式優化：手機版高度縮小至 h-56，電腦版維持 h-72 */}
                       <div className="border border-[#E1E5E8] bg-[#F8F9FA] h-56 md:h-72 flex items-center justify-center relative cursor-pointer hover:bg-white transition-colors">
                         {isUploading ? (
                           <div className="text-[#A9B1B8] text-[12px] md:text-[13px] font-bold tracking-widest">
@@ -725,27 +712,6 @@ export default function App() {
                         placeholder="例如：2"
                         disabled={isUploading}
                       />
-                    </div>
-
-                    <div className="flex flex-col gap-2 md:gap-3">
-                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">季節</label>
-                      <div className="flex gap-4 md:gap-5">
-                        {["春夏", "秋冬", "四季"].map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            disabled={isUploading}
-                            onClick={() => setNewItem({ ...newItem, season: s })}
-                            className={`pb-0.5 text-[13px] md:text-[14px] font-bold tracking-widest border-b-2 transition-all ${
-                              newItem.season === s
-                                ? "text-[#4A4F55] border-[#4A4F55]"
-                                : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
-                            }`}
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     <div className="flex flex-col gap-2 md:gap-3">
@@ -902,11 +868,6 @@ export default function App() {
 
                         {/* 右上角：狀態與季節標籤 */}
                         <div className="absolute top-1.5 right-1.5 md:top-2 md:right-2 flex gap-1 items-start z-10 flex-col">
-                          {item.season && (
-                            <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getSeasonColor(item.season)}`}>
-                              {item.season}
-                            </span>
-                          )}
                           {item.status && (
                             <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getStatusColor(item.status)}`}>
                               {item.status}
