@@ -2,8 +2,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Camera,
   Plus,
-  Tag,
-  Ruler,
   AlignLeft,
   Trash2,
   Edit2,
@@ -13,6 +11,8 @@ import {
   Info,
   X,
   XCircle,
+  Tag,
+  Archive
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -23,7 +23,9 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
-  setDoc,
+  query,
+  orderBy,
+  limit
 } from "firebase/firestore";
 
 // ==========================================
@@ -45,7 +47,6 @@ export default function App() {
   const [clothes, setClothes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 判斷是否為訪客模式 (?view=shared)
   const [isReadOnly] = useState(() =>
     new URLSearchParams(window.location.search).get("view") === "shared"
   );
@@ -57,17 +58,13 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
 
-  const [headerInfo, setHeaderInfo] = useState({
-    title: "My Wardrobe",
-    subtitle: "兒童服飾與穿搭紀錄本",
-  });
-  const [isEditingHeader, setIsEditingHeader] = useState(false);
-  const [editHeaderInfo, setEditHeaderInfo] = useState({
-    title: "",
-    subtitle: "",
-  });
+  const headerInfo = {
+    title: "Huhu的衣櫃",
+    subtitle: "紀錄日常的每一件經典",
+  };
 
   const [selectedItem, setSelectedItem] = useState(null);
+  const [itemToDelete, setItemToDelete] = useState(null);
 
   const defaultFormState = {
     brand: "",
@@ -80,49 +77,70 @@ export default function App() {
   };
   const [newItem, setNewItem] = useState(defaultFormState);
 
-  // --- Firebase 讀取資料 ---
   useEffect(() => {
-    // 讀取所有衣物
     const clothesRef = collection(db, "clothes");
+    const q = query(clothesRef, orderBy("createdAt", "desc"), limit(150));
+
     const unsubscribeClothes = onSnapshot(
-      clothesRef,
+      q,
       (snapshot) => {
-        const data = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .sort((a, b) => b.createdAt - a.createdAt); // 依時間新到舊排序
+        const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         setClothes(data);
         setIsLoading(false);
       },
       (error) => {
         console.error("讀取資料失敗:", error);
-        setIsLoading(false);
+        const fallbackUnsub = onSnapshot(clothesRef, (snap) => {
+          const data = snap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .sort((a, b) => b.createdAt - a.createdAt);
+          setClothes(data);
+          setIsLoading(false);
+        });
+        return () => fallbackUnsub();
       }
     );
 
-    // 讀取標題設定
-    const settingsRef = doc(db, "settings", "header");
-    const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
-      if (docSnap.exists()) setHeaderInfo(docSnap.data());
-    });
-
     return () => {
       unsubscribeClothes();
-      unsubscribeSettings();
     };
   }, []);
 
-  // --- 篩選 ---
-  const brands = useMemo(() => {
-    const allBrands = clothes
-      .map((c) => c.brand)
-      .filter((b) => b && b.trim() !== "");
-    return ["全部", ...new Set(allBrands)];
+  const brandData = useMemo(() => {
+    const counts = { '全部': clothes.length };
+    const uniqueBrands = new Set();
+    clothes.forEach(c => {
+      const b = (c.brand && c.brand.trim() !== "") ? c.brand.trim() : '無品牌';
+      uniqueBrands.add(b);
+      counts[b] = (counts[b] || 0) + 1;
+    });
+    return {
+      list: ["全部", ...Array.from(uniqueBrands).sort()],
+      counts
+    };
+  }, [clothes]);
+
+  const statusData = useMemo(() => {
+    const counts = { '全部': clothes.length, '未售出': 0, '囤貨': 0, '待售': 0, '售出': 0 };
+    clothes.forEach(c => {
+      const s = c.status || '未售出';
+      if (counts[s] !== undefined) {
+        counts[s]++;
+      } else {
+        counts[s] = 1;
+      }
+    });
+    return {
+      list: ["全部", "未售出", "囤貨", "待售", "售出"],
+      counts
+    };
   }, [clothes]);
 
   const filteredClothes = useMemo(() => {
     return clothes.filter((c) => {
+      const b = (c.brand && c.brand.trim() !== "") ? c.brand.trim() : '無品牌';
       return (
-        (filterBrand === "全部" || c.brand === filterBrand) &&
+        (filterBrand === "全部" || b === filterBrand) &&
         (filterStatus === "全部" || c.status === filterStatus)
       );
     });
@@ -130,31 +148,13 @@ export default function App() {
 
   const showToast = (msg) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(""), 3000);
+    setTimeout(() => setToastMsg(""), 3500);
   };
 
-  const handleSaveHeader = async () => {
-    try {
-      await setDoc(
-        doc(db, "settings", "header"),
-        {
-          title: editHeaderInfo.title || "My Wardrobe",
-          subtitle: editHeaderInfo.subtitle || "兒童服飾與穿搭紀錄本",
-          updatedAt: Date.now(),
-        },
-        { merge: true }
-      );
-      setIsEditingHeader(false);
-      showToast("✅ 已成功更新標題！");
-    } catch (error) {
-      showToast("更新標題失敗，請重試。");
-    }
-  };
-
-  const compressImage = (file, maxSize = 800) => {
+  const compressImage = (file, maxSize = 600) => {
     return new Promise((resolve) => {
       if (!file.type.startsWith("image/")) {
-        showToast("請上傳正確的圖片格式喔！");
+        showToast("請上傳正確的相片格式");
         resolve(null);
         return;
       }
@@ -165,8 +165,7 @@ export default function App() {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          let width = img.width,
-            height = img.height;
+          let width = img.width, height = img.height;
           if (width > height && width > maxSize) {
             height *= maxSize / width;
             width = maxSize;
@@ -179,22 +178,17 @@ export default function App() {
           canvas.getContext("2d").drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL("image/jpeg", 0.65));
         };
-        img.onerror = () => {
-          resolve(null);
-        };
+        img.onerror = () => resolve(null);
       };
-      reader.onerror = () => {
-        resolve(null);
-      };
+      reader.onerror = () => resolve(null);
     });
   };
 
-  // --- 事件處理 ---
   const handleMainImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setIsUploading(true);
-      const img = await compressImage(file, 800);
+      const img = await compressImage(file, 600);
       if (img) setNewItem((prev) => ({ ...prev, image: img }));
       setIsUploading(false);
       e.target.value = "";
@@ -205,13 +199,13 @@ export default function App() {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     if ((newItem.additionalImages?.length || 0) + files.length > 3) {
-      showToast("最多只能額外上傳 3 張喔！");
+      showToast("實穿相片至多 3 張");
       e.target.value = "";
       return;
     }
     setIsUploading(true);
     const compressedImages = await Promise.all(
-      files.map((file) => compressImage(file, 600))
+      files.map((file) => compressImage(file, 500))
     );
     const validImages = compressedImages.filter((img) => img !== null);
     setNewItem((prev) => ({
@@ -229,8 +223,7 @@ export default function App() {
     }));
   };
 
-  const handleEdit = (e, item) => {
-    e.stopPropagation();
+  const handleEdit = (item) => {
     setNewItem({ ...item, additionalImages: item.additionalImages || [] });
     setEditingId(item.id);
     setIsUploading(false);
@@ -241,13 +234,13 @@ export default function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newItem.image && !newItem.brand) {
-      showToast("請上傳照片或輸入品牌！");
+      showToast("請上傳相片或輸入品牌名稱");
       return;
     }
 
     const dataToSave = {
       ...newItem,
-      brand: newItem.brand || "未分類",
+      brand: newItem.brand || "無品牌",
       status: newItem.status || "未售出",
       updatedAt: Date.now(),
     };
@@ -255,34 +248,34 @@ export default function App() {
     try {
       if (editingId) {
         await updateDoc(doc(db, "clothes", editingId), dataToSave);
-        showToast("✅ 已儲存修改！");
+        showToast("已更新典藏紀錄");
       } else {
         await addDoc(collection(db, "clothes"), {
           ...dataToSave,
           createdAt: Date.now(),
         });
-        showToast("✅ 已加入圖庫！");
+        showToast("已成功收錄至衣櫥");
       }
       setNewItem(defaultFormState);
       setEditingId(null);
       setIsFormOpen(false);
     } catch (error) {
-      showToast("儲存失敗，請重試。");
+      console.error("Firestore Error:", error);
+      showToast(`儲存失敗：${error.message || "請檢查網路或資料庫權限"}`);
     }
   };
 
-  const handleDelete = async (e, id) => {
-    e.stopPropagation();
+  const handleDelete = async (id) => {
     try {
       await deleteDoc(doc(db, "clothes", id));
-      showToast("🗑️ 已刪除。");
+      showToast("已移除紀錄");
     } catch (error) {
-      showToast("刪除失敗。");
+      console.error("Delete Error:", error);
+      showToast("移除失敗，請檢查資料庫權限");
     }
   };
 
   const handleShare = () => {
-    // 產生訪客專用的連結
     const shareUrl = `${window.location.origin}${window.location.pathname}?view=shared`;
     const el = document.createElement("textarea");
     el.value = shareUrl;
@@ -290,105 +283,163 @@ export default function App() {
     el.select();
     document.execCommand("copy");
     document.body.removeChild(el);
-    showToast("🔗 圖庫連結已複製！");
+    showToast("鑑賞連結已複製");
+  };
+
+  // --- 莫蘭迪與破藍迪(灰藍)低飽和色系標籤 ---
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "售出": return "text-[#76848F] border-[#D0D9DF] bg-[#F0F4F5]"; 
+      case "待售": return "text-[#A88265] border-[#E8D4C8] bg-[#FDF8F5]"; 
+      case "囤貨": return "text-[#8CA1A5] border-[#DCE4E8] bg-[#F5F8F9]"; 
+      default: return "text-[#AF7C83] border-[#F0D5D8] bg-[#FDF7F8]"; 
+    }
+  };
+
+  const getSeasonColor = (season) => {
+    switch (season) {
+      case "春夏": return "text-[#8F9CAE] border-[#DDE3ED] bg-[#F5F7FA]"; 
+      case "秋冬": return "text-[#9E8B7A] border-[#E6DDD5] bg-[#FCFAF8]"; 
+      default: return "text-[#96938D] border-[#E0DED9] bg-[#F9F8F6]"; 
+    }
+  };
+
+  // --- 大理石灰白渲染與和風紋理底圖 (Marble Gray & Washi Texture) ---
+  const marbleWashiBg = {
+    backgroundColor: "#FCFCFC",
+    backgroundImage: `
+      radial-gradient(circle at 15% 40%, rgba(240, 242, 245, 0.4), transparent 60%),
+      radial-gradient(circle at 80% 20%, rgba(233, 236, 239, 0.5), transparent 60%),
+      linear-gradient(rgba(252, 252, 252, 0.45), rgba(250, 250, 250, 0.65)),
+      url("https://i.postimg.cc/mgVNsKJq/white-00036.jpg")
+    `,
+    backgroundSize: "100% 100%, 100% 100%, 100% 100%, cover",
+    backgroundPosition: "center",
+    backgroundAttachment: "fixed",
   };
 
   return (
     <div
-      className={`min-h-screen bg-stone-50 text-stone-800 font-sans p-4 md:p-8 relative ${
+      style={marbleWashiBg}
+      className={`min-h-screen text-[#4A4F55] font-serif p-4 md:p-10 relative selection:bg-[#E1E5E8] selection:text-[#4A4F55] ${
         selectedItem ? "overflow-hidden h-screen" : ""
       }`}
     >
+      {/* 浮動提示框 */}
       {toastMsg && (
-        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 bg-stone-800 text-white px-5 py-3 rounded-full shadow-lg z-50 flex items-center gap-2 animate-fade-in text-sm font-medium">
-          {toastMsg.includes("✅") ? (
-            <CheckCircle size={18} className="text-green-400" />
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-md text-[#4A4F55] border border-[#E1E5E8] px-8 py-3 shadow-[0_4px_15px_rgba(0,0,0,0.03)] z-50 flex items-center gap-3 animate-fade-in text-[13px] tracking-widest font-medium">
+          {toastMsg.includes("已") || toastMsg.includes("收錄") ? (
+            <CheckCircle size={16} className="text-[#A9B1B8]" strokeWidth={1.5} />
           ) : (
-            <Info size={18} />
+            <Info size={16} className="text-[#A9B1B8]" strokeWidth={1.5} />
           )}
-          {toastMsg.replace("✅ ", "").replace("🗑️ ", "").replace("🔗 ", "")}
+          {toastMsg}
         </div>
       )}
 
+      {/* 客製化刪除確認視窗 */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white/95 backdrop-blur-md p-8 border border-[#E1E5E8] max-w-sm w-full text-center shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
+            <h3 className="text-[16px] font-bold text-[#4A4F55] mb-3 tracking-widest">
+              確認移除
+            </h3>
+            <p className="text-[13px] text-[#838A91] mb-8 font-medium tracking-wide leading-relaxed">
+              確定要將「{itemToDelete.brand || '此紀錄'}」從衣櫥中移除嗎？<br />此操作無法復原。
+            </p>
+            <div className="flex gap-4 justify-center">
+              <button
+                onClick={() => {
+                  handleDelete(itemToDelete.id);
+                  setItemToDelete(null);
+                }}
+                className="text-[13px] font-bold text-white bg-[#AF7C83] px-8 py-2.5 hover:bg-[#9A6A70] transition-colors border border-transparent shadow-sm"
+              >
+                確定移除
+              </button>
+              <button
+                onClick={() => setItemToDelete(null)}
+                className="text-[13px] font-bold text-[#838A91] bg-transparent border border-[#E1E5E8] hover:text-[#4A4F55] hover:bg-[#F8F9FA] px-8 py-2.5 transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 圖片細節 Modal (優雅藝廊模式) */}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-stone-900/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col md:flex-row relative">
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="absolute top-4 right-4 z-10 bg-black/20 text-white hover:bg-black/40 p-2 rounded-full backdrop-blur md:text-stone-400 md:bg-stone-100 md:hover:bg-stone-200"
-            >
-              <X size={24} />
-            </button>
-            <div className="w-full md:w-3/5 bg-stone-100 overflow-y-auto max-h-[50vh] md:max-h-full scrollbar-hide">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-12 bg-[#F8F9FA]/90 backdrop-blur-md animate-fade-in">
+          <button
+            onClick={() => setSelectedItem(null)}
+            className="absolute top-6 right-6 md:top-8 md:right-8 z-20 text-[#A9B1B8] hover:text-[#4A4F55] bg-white/50 hover:bg-white transition-colors p-2 shadow-sm border border-transparent hover:border-[#E1E5E8]"
+          >
+            <X size={28} strokeWidth={1.5} />
+          </button>
+
+          <div className="w-full h-full md:h-auto md:max-h-[85vh] max-w-[1000px] flex flex-col md:flex-row relative bg-white md:shadow-[0_15px_50px_rgba(0,0,0,0.06)] overflow-hidden border border-[#E1E5E8]">
+            
+            {/* 左側照片區 */}
+            <div className="w-full md:w-[55%] bg-[#F8F9FA] overflow-y-auto max-h-[60vh] md:max-h-full scrollbar-hide flex flex-col justify-center border-r border-[#E1E5E8]">
               {selectedItem.image && (
-                <img
-                  src={selectedItem.image}
-                  alt="主照片"
-                  className="w-full h-auto object-cover"
-                />
+                <div className="p-6 md:p-12 relative">
+                  <img
+                    src={selectedItem.image}
+                    alt="Main"
+                    className="w-full h-auto object-contain shadow-sm"
+                  />
+                  {/* 大尺寸浮水顯示 */}
+                  {selectedItem.size && (
+                    <div className="absolute bottom-8 left-8 bg-white/90 backdrop-blur-md text-[#4A4F55] px-4 py-2 shadow-sm border border-[#E1E5E8] text-[13px] tracking-widest font-bold">
+                      尺寸：{selectedItem.size}
+                    </div>
+                  )}
+                </div>
               )}
               {selectedItem.additionalImages?.length > 0 && (
-                <div className="p-4 bg-stone-100">
-                  <h4 className="text-sm font-bold text-stone-500 mb-3 flex items-center gap-1">
-                    <ImageIcon size={16} /> 實穿照片 (
-                    {selectedItem.additionalImages.length})
-                  </h4>
-                  <div className="flex flex-col gap-4">
-                    {selectedItem.additionalImages.map((img, idx) => (
-                      <img
-                        key={idx}
-                        src={img}
-                        alt="實穿"
-                        className="w-full rounded-xl shadow-sm object-cover"
-                      />
-                    ))}
-                  </div>
+                <div className="px-6 md:px-12 pb-12 flex flex-col gap-8">
+                  {selectedItem.additionalImages.map((img, idx) => (
+                    <img
+                      key={idx}
+                      src={img}
+                      alt="Detail"
+                      className="w-full h-auto object-contain shadow-sm border border-[#E1E5E8]"
+                    />
+                  ))}
                 </div>
               )}
             </div>
-            <div className="w-full md:w-2/5 p-6 md:p-8 flex flex-col bg-white overflow-y-auto max-h-[40vh] md:max-h-full">
-              <div className="flex flex-wrap gap-2 mb-4">
+
+            {/* 右側資訊區 */}
+            <div className="w-full md:w-[45%] p-8 md:p-12 flex flex-col bg-white overflow-y-auto max-h-[40vh] md:max-h-full">
+              <div className="flex flex-wrap gap-3 mb-6">
                 {selectedItem.season && (
-                  <span className="bg-stone-100 text-stone-600 text-xs px-3 py-1.5 rounded-full font-medium border">
+                  <span className={`text-[12px] tracking-[0.2em] font-semibold px-3 py-1 border ${getSeasonColor(selectedItem.season)}`}>
                     {selectedItem.season}
                   </span>
                 )}
                 {selectedItem.status && (
-                  <span
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium border ${
-                      selectedItem.status === "售出"
-                        ? "bg-stone-500 text-white"
-                        : selectedItem.status === "待售"
-                        ? "bg-[#d4c4b7] text-stone-800"
-                        : selectedItem.status === "囤貨"
-                        ? "bg-stone-200 text-stone-700"
-                        : "bg-white text-stone-600"
-                    }`}
-                  >
+                  <span className={`text-[12px] tracking-[0.2em] font-semibold px-3 py-1 border ${getStatusColor(selectedItem.status)}`}>
                     {selectedItem.status}
                   </span>
                 )}
               </div>
-              <h2 className="text-2xl font-bold text-stone-800 mb-2">
+              
+              <h2 className="text-2xl md:text-3xl text-[#4A4F55] mb-6 tracking-widest leading-relaxed font-bold">
                 {selectedItem.brand}
               </h2>
+              
               {selectedItem.size && (
-                <div className="inline-block bg-stone-800 text-white text-sm px-4 py-2 rounded-lg font-bold mb-6 self-start shadow-sm">
-                  <span className="text-stone-300 text-xs font-medium mr-1">
-                    尺寸
-                  </span>
-                  {selectedItem.size}
+                <div className="text-[14px] text-[#838A91] tracking-[0.25em] mb-10 flex items-center gap-3 font-semibold">
+                  <span className="text-[#B8C0C7]">尺寸標示 —</span> {selectedItem.size}
                 </div>
               )}
-              <div className="mt-4 flex-grow">
-                <h4 className="text-sm font-bold text-stone-500 mb-2 border-b pb-2 flex items-center gap-2">
-                  <AlignLeft size={16} /> 穿搭筆記
-                </h4>
-                <p className="text-stone-600 leading-relaxed whitespace-pre-line text-[15px]">
+              
+              <div className="mt-2 flex-grow border-t border-[#EBEDF0] pt-8">
+                <p className="text-[#838A91] leading-loose whitespace-pre-line text-[14px] tracking-widest font-medium">
                   {selectedItem.notes || (
-                    <span className="text-stone-400 italic text-sm">
-                      沒有留下筆記喔～
-                    </span>
+                    <span className="text-[#B8C0C7] italic">尚無相關紀錄</span>
                   )}
                 </p>
               </div>
@@ -397,84 +448,36 @@ export default function App() {
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto">
-        {isReadOnly && (
-          <div className="bg-[#d4c4b7]/30 text-stone-700 p-3 rounded-xl mb-6 flex items-center justify-center gap-2 text-sm font-medium border">
-            <Info size={18} /> 訪客瀏覽模式，無法新增或編輯。
-          </div>
-        )}
-
-        <header className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-          <div className="text-center sm:text-left">
-            {isEditingHeader && !isReadOnly ? (
-              <div className="flex flex-col gap-2 bg-white p-4 rounded-xl shadow-sm border text-left">
-                <input
-                  type="text"
-                  value={editHeaderInfo.title}
-                  onChange={(e) =>
-                    setEditHeaderInfo({
-                      ...editHeaderInfo,
-                      title: e.target.value,
-                    })
-                  }
-                  className="text-2xl font-bold text-stone-700 border-b-2 border-[#d4c4b7] focus:outline-none bg-transparent px-1 py-1"
-                />
-                <input
-                  type="text"
-                  value={editHeaderInfo.subtitle}
-                  onChange={(e) =>
-                    setEditHeaderInfo({
-                      ...editHeaderInfo,
-                      subtitle: e.target.value,
-                    })
-                  }
-                  className="text-sm text-stone-600 border-b focus:outline-none bg-transparent px-1 py-1"
-                />
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={handleSaveHeader}
-                    className="text-xs bg-[#d4c4b7] px-4 py-1.5 rounded-full font-medium"
-                  >
-                    儲存
-                  </button>
-                  <button
-                    onClick={() => setIsEditingHeader(false)}
-                    className="text-xs bg-stone-200 px-4 py-1.5 rounded-full font-medium"
-                  >
-                    取消
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="group relative inline-block pr-8">
-                <h1 className="text-2xl font-bold text-stone-700">
-                  {headerInfo.title}
-                </h1>
-                <p className="text-sm text-stone-500 mt-1">
-                  {headerInfo.subtitle}
-                </p>
-                {!isReadOnly && (
-                  <button
-                    onClick={() => {
-                      setEditHeaderInfo(headerInfo);
-                      setIsEditingHeader(true);
-                    }}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 hover:bg-stone-200 rounded-full"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                )}
+      {/* 主內容區 */}
+      <div className="max-w-[1200px] mx-auto pt-4 md:pt-10 relative z-10">
+        
+        {/* Header 區塊 (靠左對齊) */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 pb-6 border-b border-[#E1E5E8] gap-6">
+          <div className="w-full md:max-w-2xl text-left">
+            {isReadOnly && (
+              <div className="text-[#A9B1B8] text-[12px] tracking-[0.2em] mb-4 flex items-center gap-2 bg-white/50 backdrop-blur-sm w-fit px-4 py-1.5 border border-[#E1E5E8]">
+                <Info size={14} />
+                <span>訪客鑑賞模式</span>
               </div>
             )}
+            
+            <div className="group relative inline-block text-left w-full">
+              <h1 className="text-2xl md:text-3xl text-[#4A4F55] tracking-[0.2em] leading-tight font-bold">
+                {headerInfo.title}
+              </h1>
+              <p className="text-[11px] md:text-[12px] text-[#A9B1B8] mt-3 tracking-[0.25em] font-semibold uppercase">
+                {headerInfo.subtitle}
+              </p>
+            </div>
           </div>
 
           {!isReadOnly && (
-            <div className="flex gap-3">
+            <div className="flex gap-6 mt-2 md:mt-0 shrink-0">
               <button
                 onClick={handleShare}
-                className="flex items-center gap-2 bg-white border px-4 py-2.5 rounded-full text-sm font-medium"
+                className="flex items-center gap-2 text-[12px] tracking-[0.2em] font-bold text-[#838A91] hover:text-[#4A4F55] transition-colors pb-1 border-b border-transparent hover:border-[#4A4F55]"
               >
-                <Share2 size={16} /> 分享圖庫
+                <Share2 size={14} strokeWidth={1.5} /> 分享
               </button>
               <button
                 onClick={() => {
@@ -482,17 +485,17 @@ export default function App() {
                   setEditingId(null);
                   setIsFormOpen(!isFormOpen);
                 }}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium ${
+                className={`flex items-center gap-2 text-[12px] tracking-[0.2em] font-bold transition-colors pb-1 border-b ${
                   isFormOpen
-                    ? "bg-stone-200 text-stone-700"
-                    : "bg-stone-700 text-white"
+                    ? "text-[#4A4F55] border-[#4A4F55]"
+                    : "text-[#838A91] hover:text-[#4A4F55] border-transparent hover:border-[#4A4F55]"
                 }`}
               >
                 {isFormOpen ? (
-                  "取消"
+                  <>關閉</>
                 ) : (
                   <>
-                    <Plus size={18} /> 新增衣物
+                    <Plus size={14} strokeWidth={1.5} /> 新增
                   </>
                 )}
               </button>
@@ -500,37 +503,37 @@ export default function App() {
           )}
         </header>
 
+        {/* 新增/編輯表單 (緊湊排版) */}
         {isFormOpen && !isReadOnly && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border mb-8 animate-fade-in">
-            <form
-              onSubmit={handleSubmit}
-              className="grid grid-cols-1 lg:grid-cols-2 gap-8"
-            >
-              <div className="flex flex-col gap-5">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium text-stone-600 flex items-center gap-1">
-                    <Camera size={16} /> 單品主圖
+          <div className="bg-white/95 backdrop-blur-md p-8 md:p-10 shadow-sm border border-[#E1E5E8] mb-12 animate-fade-in w-full">
+            <h3 className="text-[14px] font-bold text-[#4A4F55] mb-8 tracking-[0.2em] text-left border-b border-[#EBEDF0] pb-4">
+              {editingId ? "編輯收錄資訊" : "新增典藏紀錄"}
+            </h3>
+
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
+              {/* 左側：照片上傳 */}
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-3">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    主要相片
                   </label>
-                  <div className="border-2 border-dashed rounded-xl h-48 flex items-center justify-center relative bg-stone-50 cursor-pointer group overflow-hidden">
+                  <div className="border border-[#E1E5E8] bg-[#F8F9FA] h-72 flex items-center justify-center relative cursor-pointer hover:bg-white transition-colors">
                     {isUploading ? (
-                      <div className="text-stone-400 text-sm">
-                        圖片處理中...
+                      <div className="text-[#A9B1B8] text-[13px] font-bold tracking-widest">
+                        處理中...
                       </div>
                     ) : newItem.image ? (
-                      <>
+                      <div className="w-full h-full p-3">
                         <img
                           src={newItem.image}
-                          className="w-full h-full object-cover group-hover:opacity-75"
-                          alt="預覽"
+                          className="w-full h-full object-contain opacity-95 hover:opacity-100 transition-opacity border border-[#EBEDF0]"
+                          alt="Preview"
                         />
-                        <div className="absolute opacity-0 group-hover:opacity-100 bg-stone-800/70 text-white px-3 py-1.5 rounded-full text-sm">
-                          更換主圖
-                        </div>
-                      </>
+                      </div>
                     ) : (
-                      <div className="flex flex-col items-center gap-2 text-stone-400">
-                        <ImageIcon size={32} />
-                        <span className="text-sm">點擊上傳</span>
+                      <div className="flex flex-col items-center gap-3 text-[#B8C0C7]">
+                        <Camera size={28} strokeWidth={1.2} />
+                        <span className="text-[12px] font-bold tracking-widest">點擊上傳</span>
                       </div>
                     )}
                     <input
@@ -542,45 +545,45 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="flex flex-col gap-2 p-4 bg-stone-50 rounded-xl border">
-                  <div className="flex justify-between">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      <ImageIcon size={16} /> 實穿照 (最多3張)
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center border-b border-[#E1E5E8] pb-2">
+                    <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                      實穿相片
                     </label>
-                    <span className="text-xs text-stone-400">
+                    <span className="text-[11px] font-bold text-[#A9B1B8]">
                       {newItem.additionalImages?.length || 0}/3
                     </span>
                   </div>
+                  
                   {newItem.additionalImages?.length > 0 && (
-                    <div className="flex gap-2 overflow-x-auto pb-1">
+                    <div className="flex gap-3 overflow-x-auto pt-2 pb-1">
                       {newItem.additionalImages.map((img, idx) => (
-                        <div
-                          key={idx}
-                          className="relative w-20 h-20 flex-shrink-0"
-                        >
+                        <div key={idx} className="relative w-20 h-20 flex-shrink-0 border border-[#E1E5E8] p-1 bg-white group">
                           <img
                             src={img}
-                            alt="實穿"
-                            className="w-full h-full object-cover rounded-lg border"
+                            alt="Additional"
+                            className="w-full h-full object-cover"
                           />
                           <button
                             type="button"
                             onClick={() => removeAdditionalImage(idx)}
-                            className="absolute top-1 right-1 bg-white/80 text-red-500 rounded-full p-0.5"
+                            className="absolute -top-2 -right-2 bg-white text-[#A9B1B8] p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-[#E1E5E8]"
                           >
-                            <XCircle size={14} />
+                            <X size={12} strokeWidth={1.5} />
                           </button>
                         </div>
                       ))}
                     </div>
                   )}
+                  
                   {(newItem.additionalImages?.length || 0) < 3 && (
-                    <div className="relative">
+                    <div className="relative mt-1">
                       <button
                         type="button"
-                        className="w-full py-2 border-2 border-dashed rounded-lg text-sm text-stone-500 flex justify-center items-center gap-1"
+                        className="w-full py-3 border border-dashed border-[#B8C0C7] text-[13px] font-bold tracking-widest text-[#A9B1B8] hover:text-[#4A4F55] hover:border-[#A9B1B8] transition-colors bg-[#F8F9FA]/50"
                       >
-                        <Plus size={16} /> 加入實穿照
+                        + 附加相片
                       </button>
                       <input
                         type="file"
@@ -595,49 +598,46 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      <Tag size={16} /> 品牌
-                    </label>
-                    <input
-                      type="text"
-                      value={newItem.brand}
-                      onChange={(e) =>
-                        setNewItem({ ...newItem, brand: e.target.value })
-                      }
-                      className="border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 bg-stone-50"
-                      placeholder="例: Laura Kae"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      <Ruler size={16} /> 尺寸
-                    </label>
-                    <input
-                      type="text"
-                      value={newItem.size}
-                      onChange={(e) =>
-                        setNewItem({ ...newItem, size: e.target.value })
-                      }
-                      className="border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 bg-stone-50"
-                      placeholder="例: 100cm"
-                    />
-                  </div>
+              {/* 右側：資料輸入 */}
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-2 border-b border-[#E1E5E8] pb-2">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    品牌
+                  </label>
+                  <input
+                    type="text"
+                    value={newItem.brand}
+                    onChange={(e) => setNewItem({ ...newItem, brand: e.target.value })}
+                    className="w-full py-1.5 focus:outline-none bg-transparent text-[#4A4F55] text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
+                    placeholder="例如：Misha & Puff"
+                  />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium">季節</label>
-                  <div className="flex gap-2">
+                
+                <div className="flex flex-col gap-2 border-b border-[#E1E5E8] pb-2">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    尺寸
+                  </label>
+                  <input
+                    type="text"
+                    value={newItem.size}
+                    onChange={(e) => setNewItem({ ...newItem, size: e.target.value })}
+                    className="w-full py-1.5 focus:outline-none bg-transparent text-[#4A4F55] text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
+                    placeholder="例如：2"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">季節</label>
+                  <div className="flex gap-5">
                     {["春夏", "秋冬", "四季"].map((s) => (
                       <button
                         key={s}
                         type="button"
                         onClick={() => setNewItem({ ...newItem, season: s })}
-                        className={`flex-1 py-2 rounded-lg text-sm border ${
+                        className={`pb-1 text-[14px] font-bold tracking-widest border-b-2 transition-all ${
                           newItem.season === s
-                            ? "bg-stone-700 text-white"
-                            : "bg-stone-50"
+                            ? "text-[#4A4F55] border-[#4A4F55]"
+                            : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
                         }`}
                       >
                         {s}
@@ -645,18 +645,19 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium">狀態</label>
-                  <div className="flex gap-2">
+
+                <div className="flex flex-col gap-3">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">狀態</label>
+                  <div className="flex flex-wrap gap-5">
                     {["未售出", "囤貨", "待售", "售出"].map((s) => (
                       <button
                         key={s}
                         type="button"
                         onClick={() => setNewItem({ ...newItem, status: s })}
-                        className={`flex-1 py-2 rounded-lg text-sm border ${
+                        className={`pb-1 text-[14px] font-bold tracking-widest border-b-2 transition-all ${
                           newItem.status === s
-                            ? "bg-[#d4c4b7] text-stone-800 font-medium"
-                            : "bg-stone-50"
+                            ? "text-[#4A4F55] border-[#4A4F55]"
+                            : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
                         }`}
                       >
                         {s}
@@ -664,172 +665,173 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <div className="flex flex-col gap-1.5 h-full">
-                  <label className="text-sm font-medium flex items-center gap-1">
-                    <AlignLeft size={16} /> 筆記
+
+                <div className="flex flex-col gap-2 flex-grow border-t border-[#EBEDF0] pt-4">
+                  <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    紀實
                   </label>
                   <textarea
                     value={newItem.notes}
-                    onChange={(e) =>
-                      setNewItem({ ...newItem, notes: e.target.value })
-                    }
-                    className="border rounded-lg px-3 py-2.5 h-full min-h-[80px] resize-none focus:outline-none focus:ring-2 bg-stone-50"
+                    onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })}
+                    className="w-full h-full min-h-[90px] resize-none focus:outline-none bg-transparent text-[#4A4F55] text-[14px] leading-relaxed placeholder-[#B8C0C7] tracking-wide font-medium"
+                    placeholder="寫下這件衣服的紀錄..."
                   />
                 </div>
               </div>
-              <div className="lg:col-span-2 flex justify-end mt-2 pt-4 border-t">
+
+              {/* 儲存按鈕 */}
+              <div className="md:col-span-2 flex justify-start mt-4">
                 <button
                   type="submit"
                   disabled={isUploading}
-                  className={`bg-[#d4c4b7] text-stone-800 font-medium px-8 py-2.5 rounded-full ${
-                    isUploading ? "opacity-50" : ""
+                  className={`bg-[#4A4F55] text-white text-[13px] font-bold tracking-[0.3em] px-16 py-3.5 hover:bg-[#3B3E42] transition-colors shadow-sm border border-transparent ${
+                    isUploading ? "opacity-50 cursor-not-allowed" : ""
                   }`}
                 >
-                  {editingId ? "儲存修改" : "儲存到圖庫"}
+                  {editingId ? "儲存更新" : "確認收錄"}
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        <div className="flex flex-col gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm border">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-stone-500 w-12 text-right">
-              品牌
+        {/* 分類導覽區塊 (無框線，純文字列表式) */}
+        <div className="flex flex-col gap-6 mb-10 border-b border-[#E1E5E8] pb-6 w-full">
+          {/* 品牌分類 */}
+          <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+            <span className="text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-2 min-w-[90px]">
+              <Tag size={16} className="text-[#B8C0C7]"/> 品牌
             </span>
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide flex-grow pb-1">
-              {brands.map((b) => (
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
+              {brandData.list.map((b) => (
                 <button
                   key={b}
                   onClick={() => setFilterBrand(b)}
-                  className={`whitespace-nowrap px-4 py-1.5 rounded-full text-sm border ${
+                  className={`whitespace-nowrap px-3 py-1.5 text-[14px] tracking-widest transition-all border-b-2 ${
                     filterBrand === b
-                      ? "bg-stone-700 text-white"
-                      : "bg-stone-50"
+                      ? "text-[#4A4F55] border-[#4A4F55] font-bold"
+                      : "text-[#A9B1B8] border-transparent hover:text-[#4A4F55] font-medium"
                   }`}
                 >
-                  {b}
+                  {b} <span className={`ml-1 text-[12px] ${filterBrand === b ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({brandData.counts[b]})</span>
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-3 pt-2 border-t">
-            <span className="text-sm font-bold text-stone-500 w-12 text-right">
-              狀態
+
+          {/* 狀態分類 */}
+          <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+            <span className="text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-2 min-w-[90px]">
+              <Archive size={16} className="text-[#B8C0C7]"/> 狀態
             </span>
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide flex-grow pb-1">
-              {["全部", "未售出", "囤貨", "待售", "售出"].map((s) => (
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
+              {statusData.list.map((s) => (
                 <button
                   key={s}
                   onClick={() => setFilterStatus(s)}
-                  className={`whitespace-nowrap px-4 py-1.5 rounded-full text-sm border ${
+                  className={`whitespace-nowrap px-3 py-1.5 text-[14px] tracking-widest transition-all border-b-2 ${
                     filterStatus === s
-                      ? "bg-[#d4c4b7] font-medium"
-                      : "bg-stone-50"
+                      ? "text-[#4A4F55] border-[#4A4F55] font-bold"
+                      : "text-[#A9B1B8] border-transparent hover:text-[#4A4F55] font-medium"
                   }`}
                 >
-                  {s}
+                  {s} <span className={`ml-1 text-[12px] ${filterStatus === s ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({statusData.counts[s]})</span>
                 </button>
               ))}
             </div>
           </div>
         </div>
 
+        {/* 列表區塊 (緊密卡片排列) */}
         {isLoading ? (
-          <div className="py-20 text-center text-stone-400 flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-4 border-[#d4c4b7] border-t-transparent rounded-full animate-spin"></div>
-            載入圖庫中...
+          <div className="py-24 flex justify-center">
+            <span className="text-[14px] font-bold tracking-[0.25em] text-[#A9B1B8] animate-pulse">典藏庫載入中...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 md:gap-x-6 gap-y-10">
             {filteredClothes.length === 0 ? (
-              <div className="col-span-full py-16 text-center text-stone-400 bg-white rounded-2xl border border-dashed">
-                這個圖庫目前還沒有衣服喔！
+              <div className="col-span-full py-24 flex flex-col items-center justify-center text-center">
+                <div className="text-[#E1E5E8] mb-5">
+                  <ImageIcon size={48} strokeWidth={1} />
+                </div>
+                <div className="text-[#A9B1B8] text-[14px] font-bold tracking-[0.2em]">
+                  目前尚無紀錄
+                </div>
               </div>
             ) : (
               filteredClothes.map((item) => (
                 <div
                   key={item.id}
                   onClick={() => setSelectedItem(item)}
-                  className="bg-white rounded-2xl overflow-hidden shadow-sm border hover:shadow-md hover:-translate-y-1 transition-all group flex flex-col cursor-pointer"
+                  className="group flex flex-col cursor-pointer bg-white p-3 shadow-sm border border-[#E1E5E8] hover:shadow-md transition-all duration-300"
                 >
-                  <div className="aspect-[4/5] relative bg-stone-100">
+                  {/* 照片框 (純方角) */}
+                  <div className="aspect-square bg-[#F8F9FA] overflow-hidden relative mb-3 border border-[#EBEDF0]">
                     {item.image ? (
                       <img
                         src={item.image}
-                        alt="衣服"
-                        className="w-full h-full object-cover"
+                        alt="Gallery item"
+                        className="w-full h-full object-cover opacity-[0.98] group-hover:opacity-100 group-hover:scale-[1.03] transition-transform duration-700 ease-out"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-stone-300">
-                        <ImageIcon size={48} />
+                      <div className="w-full h-full flex flex-col items-center justify-center text-[#B8C0C7]">
+                        <ImageIcon size={28} strokeWidth={1} />
                       </div>
                     )}
-                    <div className="absolute top-3 left-3 flex flex-col gap-2 items-start z-10">
+
+                    {/* 左下角：精緻的浮水印尺寸標籤 */}
+                    {item.size && (
+                      <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-sm text-[#4A4F55] border border-white/80 text-[11px] tracking-widest px-2.5 py-1 shadow-sm z-10 font-bold">
+                        尺寸 {item.size}
+                      </div>
+                    )}
+
+                    {/* 右上角：狀態與季節標籤 */}
+                    <div className="absolute top-2 right-2 flex gap-1 items-start z-10 flex-col">
                       {item.season && (
-                        <span className="bg-white/90 backdrop-blur-sm text-xs px-2.5 py-1 rounded-full font-medium">
+                        <span className={`shadow-sm text-[9px] tracking-[0.15em] font-semibold px-2 py-0.5 border ${getSeasonColor(item.season)}`}>
                           {item.season}
                         </span>
                       )}
                       {item.status && (
-                        <span
-                          className={`backdrop-blur-sm text-xs px-2.5 py-1 rounded-full font-medium border ${
-                            item.status === "售出"
-                              ? "bg-stone-500/90 text-white"
-                              : item.status === "待售"
-                              ? "bg-[#d4c4b7]/90 text-stone-800"
-                              : item.status === "囤貨"
-                              ? "bg-stone-200/90 text-stone-700"
-                              : "bg-white/90 text-stone-600"
-                          }`}
-                        >
+                        <span className={`shadow-sm text-[9px] tracking-[0.15em] font-semibold px-2 py-0.5 border ${getStatusColor(item.status)}`}>
                           {item.status}
                         </span>
                       )}
                     </div>
-                    {item.additionalImages?.length > 0 && (
-                      <div className="absolute top-3 right-3 bg-stone-800/80 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1 z-10">
-                        <ImageIcon size={12} /> +{item.additionalImages.length}{" "}
-                        實穿
-                      </div>
-                    )}
-                    {item.size && (
-                      <div className="absolute bottom-3 right-3 bg-stone-900/85 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg z-10 border border-stone-700/50">
-                        <span className="text-stone-300 text-xs font-medium mr-1">
-                          尺寸
-                        </span>
-                        {item.size}
-                      </div>
-                    )}
+
+                    {/* 管理員操作 */}
                     {!isReadOnly && (
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 z-20">
+                      <div className="absolute bottom-2 right-2 opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex gap-1.5 z-20">
                         <button
-                          onClick={(e) => handleEdit(e, item)}
-                          className="bg-white text-stone-800 p-3 rounded-full hover:scale-110 shadow-lg flex items-center gap-2 text-sm font-bold"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleEdit(item);
+                          }}
+                          className="bg-white/95 text-[#A9B1B8] p-2 hover:text-[#4A4F55] transition-colors shadow-sm border border-[#E1E5E8]"
                         >
-                          <Edit2 size={18} /> 編輯
+                          <Edit2 size={14} strokeWidth={1.5} />
                         </button>
                         <button
                           onClick={(e) => {
-                            if (window.confirm("確定刪除？"))
-                              handleDelete(e, item.id);
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setItemToDelete(item);
                           }}
-                          className="bg-red-500 text-white p-3 rounded-full hover:scale-110 shadow-lg"
+                          className="bg-white/95 text-[#A9B1B8] p-2 hover:text-[#AF7C83] transition-colors shadow-sm border border-[#E1E5E8]"
                         >
-                          <Trash2 size={18} />
+                          <Trash2 size={14} strokeWidth={1.5} />
                         </button>
                       </div>
                     )}
                   </div>
-                  <div className="p-5 flex-grow flex flex-col">
-                    <h3 className="font-bold text-stone-800 text-lg mb-3">
+                  
+                  {/* 卡片文字區 */}
+                  <div className="flex flex-col items-center text-center px-1 pb-1">
+                    <h3 className="text-[#4A4F55] text-[15px] tracking-[0.15em] truncate w-full font-bold">
                       {item.brand}
                     </h3>
-                    {item.notes && (
-                      <p className="text-sm text-stone-500 bg-stone-50 p-3 rounded-lg border mt-auto line-clamp-3">
-                        {item.notes}
-                      </p>
-                    )}
                   </div>
                 </div>
               ))
