@@ -372,13 +372,14 @@ export default function App() {
   return (
     <div
       style={marbleWashiBg}
-      className={`min-h-screen text-[#4A4F55] font-serif p-4 md:p-10 relative selection:bg-[#E1E5E8] selection:text-[#4A4F55] ${
+      // 優化外層 padding，讓手機版有更好的閱讀呼吸空間
+      className={`min-h-screen text-[#4A4F55] font-serif p-3 md:p-10 relative selection:bg-[#E1E5E8] selection:text-[#4A4F55] ${
         selectedItem || (!isReadOnly && !isAuthenticated) ? "overflow-hidden h-screen" : ""
       }`}
     >
       {/* 浮動提示框 */}
       {toastMsg && (
-        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-md text-[#4A4F55] border border-[#E1E5E8] px-8 py-3 shadow-[0_4px_15px_rgba(0,0,0,0.03)] z-50 flex items-center gap-3 animate-fade-in text-[13px] tracking-widest font-medium">
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-md text-[#4A4F55] border border-[#E1E5E8] px-8 py-3 shadow-[0_4px_15px_rgba(0,0,0,0.03)] z-50 flex items-center gap-3 animate-fade-in text-[13px] tracking-widest font-medium w-max max-w-[90vw]">
           {toastMsg.includes("已") || toastMsg.includes("收錄") || toastMsg.includes("複製") || toastMsg.includes("成功") ? (
             <CheckCircle size={16} className="text-[#A9B1B8]" strokeWidth={1.5} />
           ) : (
@@ -391,7 +392,7 @@ export default function App() {
       {/* --- 管理員登入畫面防護 (如果不是訪客模式，且尚未登入) --- */}
       {!isReadOnly && !isAuthenticated ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-          <div className="bg-white/85 backdrop-blur-md p-10 md:p-14 border border-[#E1E5E8] max-w-[420px] w-full text-center shadow-[0_15px_50px_rgba(0,0,0,0.06)] animate-fade-in flex flex-col items-center">
+          <div className="bg-white/85 backdrop-blur-md p-8 md:p-14 border border-[#E1E5E8] max-w-[420px] w-full text-center shadow-[0_15px_50px_rgba(0,0,0,0.06)] animate-fade-in flex flex-col items-center">
             <div className="w-12 h-12 bg-[#F8F9FA] rounded-full flex items-center justify-center mb-6 border border-[#E1E5E8] text-[#A9B1B8]">
               <Lock size={20} strokeWidth={1.5} />
             </div>
@@ -463,17 +464,17 @@ export default function App() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-12 bg-[#F8F9FA]/90 backdrop-blur-md animate-fade-in">
               <button
                 onClick={() => setSelectedItem(null)}
-                className="absolute top-6 right-6 md:top-8 md:right-8 z-20 text-[#A9B1B8] hover:text-[#4A4F55] bg-white/50 hover:bg-white transition-colors p-2 shadow-sm border border-transparent hover:border-[#E1E5E8]"
+                className="absolute top-4 right-4 md:top-8 md:right-8 z-20 text-[#A9B1B8] hover:text-[#4A4F55] bg-white/50 hover:bg-white transition-colors p-2 shadow-sm border border-transparent hover:border-[#E1E5E8]"
               >
                 <X size={28} strokeWidth={1.5} />
               </button>
 
               <div className="w-full h-full md:h-auto md:max-h-[85vh] max-w-[1000px] flex flex-col md:flex-row relative bg-white md:shadow-[0_15px_50px_rgba(0,0,0,0.06)] overflow-hidden border border-[#E1E5E8]">
                 
-                {/* 左側照片區 */}
-                <div className="w-full md:w-[55%] bg-[#F8F9FA] overflow-y-auto max-h-[60vh] md:max-h-full scrollbar-hide flex flex-col justify-center border-r border-[#E1E5E8]">
+                {/* 左側照片區 (手機版限制高度，避免撐滿全螢幕) */}
+                <div className="w-full md:w-[55%] bg-[#F8F9FA] overflow-y-auto max-h-[50vh] md:max-h-full scrollbar-hide flex flex-col justify-start md:justify-center border-b md:border-b-0 md:border-r border-[#E1E5E8]">
                   {selectedItem.image && (
-                    <div className="p-6 md:p-12 relative">
+                    <div className="p-6 md:p-12 relative flex justify-center w-full">
                       <img
                         src={selectedItem.image}
                         alt="Main"
@@ -481,11 +482,12 @@ export default function App() {
                           e.target.onerror = null; 
                           e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23B8C0C7' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'/%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'/%3E%3Cpolyline points='21 15 16 10 5 21'/%3E%3C/svg%3E";
                         }}
-                        className="w-full h-auto object-contain shadow-sm"
+                        // 響應式優化：手機版 max-h-[40vh] 防止過大，電腦版 max-h-[75vh]
+                        className="max-h-[40vh] md:max-h-[75vh] w-auto mx-auto object-contain shadow-sm"
                       />
                       {/* 大尺寸浮水顯示 */}
                       {selectedItem.size && (
-                        <div className="absolute bottom-8 left-8 bg-white/90 backdrop-blur-md text-[#4A4F55] px-4 py-2 shadow-sm border border-[#E1E5E8] text-[13px] tracking-widest font-bold">
+                        <div className="absolute bottom-4 left-4 md:bottom-8 md:left-8 bg-white/90 backdrop-blur-md text-[#4A4F55] px-3 py-1.5 md:px-4 md:py-2 shadow-sm border border-[#E1E5E8] text-[12px] md:text-[13px] tracking-widest font-bold">
                           尺寸：{selectedItem.size}
                         </div>
                       )}
@@ -499,7 +501,7 @@ export default function App() {
                           src={img}
                           alt="Detail"
                           onError={(e) => { e.target.style.display = 'none'; }}
-                          className="w-full h-auto object-contain shadow-sm border border-[#E1E5E8]"
+                          className="max-h-[40vh] md:max-h-[75vh] w-auto mx-auto object-contain shadow-sm border border-[#E1E5E8]"
                         />
                       ))}
                     </div>
@@ -507,32 +509,32 @@ export default function App() {
                 </div>
 
                 {/* 右側資訊區 */}
-                <div className="w-full md:w-[45%] p-8 md:p-12 flex flex-col bg-white overflow-y-auto max-h-[40vh] md:max-h-full">
-                  <div className="flex flex-wrap gap-3 mb-6">
+                <div className="w-full md:w-[45%] p-6 md:p-12 flex flex-col bg-white overflow-y-auto max-h-[50vh] md:max-h-full">
+                  <div className="flex flex-wrap gap-2.5 mb-5 md:mb-6">
                     {selectedItem.season && (
-                      <span className={`text-[12px] tracking-[0.2em] font-semibold px-3 py-1 border ${getSeasonColor(selectedItem.season)}`}>
+                      <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getSeasonColor(selectedItem.season)}`}>
                         {selectedItem.season}
                       </span>
                     )}
                     {selectedItem.status && (
-                      <span className={`text-[12px] tracking-[0.2em] font-semibold px-3 py-1 border ${getStatusColor(selectedItem.status)}`}>
+                      <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getStatusColor(selectedItem.status)}`}>
                         {selectedItem.status}
                       </span>
                     )}
                   </div>
                   
-                  <h2 className="text-2xl md:text-3xl text-[#4A4F55] mb-6 tracking-widest leading-relaxed font-bold">
+                  <h2 className="text-xl md:text-3xl text-[#4A4F55] mb-5 md:mb-6 tracking-widest leading-relaxed font-bold">
                     {selectedItem.brand}
                   </h2>
                   
                   {selectedItem.size && (
-                    <div className="text-[14px] text-[#838A91] tracking-[0.25em] mb-10 flex items-center gap-3 font-semibold">
+                    <div className="text-[13px] md:text-[14px] text-[#838A91] tracking-[0.25em] mb-8 md:mb-10 flex items-center gap-2 md:gap-3 font-semibold">
                       <span className="text-[#B8C0C7]">尺寸標示 —</span> {selectedItem.size}
                     </div>
                   )}
                   
-                  <div className="mt-2 flex-grow border-t border-[#EBEDF0] pt-8">
-                    <p className="text-[#838A91] leading-loose whitespace-pre-line text-[14px] tracking-widest font-medium">
+                  <div className="mt-2 flex-grow border-t border-[#EBEDF0] pt-6 md:pt-8">
+                    <p className="text-[#838A91] leading-loose whitespace-pre-line text-[13px] md:text-[14px] tracking-widest font-medium">
                       {selectedItem.notes || (
                         <span className="text-[#B8C0C7] italic">尚無相關紀錄</span>
                       )}
@@ -544,33 +546,33 @@ export default function App() {
           )}
 
           {/* 主內容區 */}
-          <div className="max-w-[1200px] mx-auto pt-4 md:pt-10 relative z-10">
+          <div className="max-w-[1200px] mx-auto pt-2 md:pt-10 relative z-10">
             
-            {/* Header 區塊 (靠左對齊) */}
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 pb-6 border-b border-[#E1E5E8] gap-6">
+            {/* Header 區塊 */}
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 md:mb-10 pb-5 md:pb-6 border-b border-[#E1E5E8] gap-4 md:gap-6">
               <div className="w-full md:max-w-2xl text-left">
                 {isReadOnly && (
-                  <div className="text-[#A9B1B8] text-[12px] tracking-[0.2em] mb-4 flex items-center gap-2 bg-white/50 backdrop-blur-sm w-fit px-4 py-1.5 border border-[#E1E5E8]">
+                  <div className="text-[#A9B1B8] text-[11px] md:text-[12px] tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2 bg-white/50 backdrop-blur-sm w-fit px-3 py-1.5 md:px-4 border border-[#E1E5E8]">
                     <Info size={14} />
                     <span>訪客鑑賞模式</span>
                   </div>
                 )}
                 
-                <div className="group relative inline-block text-left w-full">
+                <div className="group relative inline-block text-left w-full mt-2 md:mt-0">
                   <h1 className="text-2xl md:text-3xl text-[#4A4F55] tracking-[0.2em] leading-tight font-bold">
                     {headerInfo.title}
                   </h1>
-                  <p className="text-[11px] md:text-[12px] text-[#A9B1B8] mt-3 tracking-[0.25em] font-semibold uppercase">
+                  <p className="text-[11px] md:text-[12px] text-[#A9B1B8] mt-2 md:mt-3 tracking-[0.25em] font-semibold uppercase">
                     {headerInfo.subtitle}
                   </p>
                 </div>
               </div>
 
               {!isReadOnly && (
-                <div className="flex gap-6 mt-2 md:mt-0 shrink-0">
+                <div className="flex gap-4 md:gap-6 mt-2 md:mt-0 shrink-0 w-full md:w-auto">
                   <button
                     onClick={handleShare}
-                    className="flex items-center gap-2 text-[12px] tracking-[0.2em] font-bold text-[#838A91] hover:text-[#4A4F55] transition-colors pb-1 border-b border-transparent hover:border-[#4A4F55]"
+                    className="flex-1 md:flex-none justify-center items-center flex gap-2 text-[12px] tracking-[0.2em] font-bold text-[#838A91] hover:text-[#4A4F55] transition-colors pb-1 border-b border-transparent hover:border-[#4A4F55]"
                   >
                     <Share2 size={14} strokeWidth={1.5} /> 分享
                   </button>
@@ -580,7 +582,7 @@ export default function App() {
                       setEditingId(null);
                       setIsFormOpen(!isFormOpen);
                     }}
-                    className={`flex items-center gap-2 text-[12px] tracking-[0.2em] font-bold transition-colors pb-1 border-b ${
+                    className={`flex-1 md:flex-none justify-center flex items-center gap-2 text-[12px] tracking-[0.2em] font-bold transition-colors pb-1 border-b ${
                       isFormOpen
                         ? "text-[#4A4F55] border-[#4A4F55]"
                         : "text-[#838A91] hover:text-[#4A4F55] border-transparent hover:border-[#4A4F55]"
@@ -598,37 +600,38 @@ export default function App() {
               )}
             </header>
 
-            {/* 新增/編輯表單 (緊湊排版) */}
+            {/* 新增/編輯表單 */}
             {isFormOpen && !isReadOnly && (
-              <div className="bg-white/95 backdrop-blur-md p-8 md:p-10 shadow-sm border border-[#E1E5E8] mb-12 animate-fade-in w-full">
-                <h3 className="text-[14px] font-bold text-[#4A4F55] mb-8 tracking-[0.2em] text-left border-b border-[#EBEDF0] pb-4">
+              <div className="bg-white/95 backdrop-blur-md p-6 md:p-10 shadow-sm border border-[#E1E5E8] mb-10 md:mb-12 animate-fade-in w-full">
+                <h3 className="text-[14px] font-bold text-[#4A4F55] mb-6 md:mb-8 tracking-[0.2em] text-left border-b border-[#EBEDF0] pb-3 md:pb-4">
                   {editingId ? "編輯收錄資訊" : "新增典藏紀錄"}
                 </h3>
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
                   {/* 左側：照片上傳 */}
-                  <div className="flex flex-col gap-6">
-                    <div className="flex flex-col gap-3">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                  <div className="flex flex-col gap-5 md:gap-6">
+                    <div className="flex flex-col gap-2 md:gap-3">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                         主要相片
                       </label>
-                      <div className="border border-[#E1E5E8] bg-[#F8F9FA] h-72 flex items-center justify-center relative cursor-pointer hover:bg-white transition-colors">
+                      {/* 響應式優化：手機版高度縮小至 h-56，電腦版維持 h-72 */}
+                      <div className="border border-[#E1E5E8] bg-[#F8F9FA] h-56 md:h-72 flex items-center justify-center relative cursor-pointer hover:bg-white transition-colors">
                         {isUploading ? (
-                          <div className="text-[#A9B1B8] text-[13px] font-bold tracking-widest">
+                          <div className="text-[#A9B1B8] text-[12px] md:text-[13px] font-bold tracking-widest">
                             圖片上傳中...
                           </div>
                         ) : newItem.image ? (
-                          <div className="w-full h-full p-3">
+                          <div className="w-full h-full p-2 md:p-3 flex justify-center">
                             <img
                               src={newItem.image}
-                              className="w-full h-full object-contain opacity-95 hover:opacity-100 transition-opacity border border-[#EBEDF0]"
+                              className="max-h-full w-auto object-contain opacity-95 hover:opacity-100 transition-opacity border border-[#EBEDF0]"
                               alt="Preview"
                             />
                           </div>
                         ) : (
-                          <div className="flex flex-col items-center gap-3 text-[#B8C0C7]">
-                            <Camera size={28} strokeWidth={1.2} />
-                            <span className="text-[12px] font-bold tracking-widest">點擊上傳</span>
+                          <div className="flex flex-col items-center gap-2 md:gap-3 text-[#B8C0C7]">
+                            <Camera size={24} strokeWidth={1.2} className="md:w-7 md:h-7" />
+                            <span className="text-[11px] md:text-[12px] font-bold tracking-widest">點擊上傳</span>
                           </div>
                         )}
                         <input
@@ -641,20 +644,20 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-3">
-                      <div className="flex justify-between items-center border-b border-[#E1E5E8] pb-2">
-                        <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    <div className="flex flex-col gap-2 md:gap-3">
+                      <div className="flex justify-between items-center border-b border-[#E1E5E8] pb-1.5 md:pb-2">
+                        <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                           實穿相片
                         </label>
-                        <span className="text-[11px] font-bold text-[#A9B1B8]">
+                        <span className="text-[10px] md:text-[11px] font-bold text-[#A9B1B8]">
                           {newItem.additionalImages?.length || 0}/3
                         </span>
                       </div>
                       
                       {newItem.additionalImages?.length > 0 && (
-                        <div className="flex gap-3 overflow-x-auto pt-2 pb-1">
+                        <div className="flex gap-2.5 overflow-x-auto pt-2 pb-1">
                           {newItem.additionalImages.map((img, idx) => (
-                            <div key={idx} className="relative w-20 h-20 flex-shrink-0 border border-[#E1E5E8] p-1 bg-white group">
+                            <div key={idx} className="relative w-16 h-16 md:w-20 md:h-20 flex-shrink-0 border border-[#E1E5E8] p-1 bg-white group">
                               <img
                                 src={img}
                                 alt="Additional"
@@ -663,9 +666,9 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => removeAdditionalImage(idx)}
-                                className="absolute -top-2 -right-2 bg-white text-[#A9B1B8] p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-[#E1E5E8]"
+                                className="absolute -top-1.5 -right-1.5 md:-top-2 md:-right-2 bg-white text-[#A9B1B8] p-0.5 md:p-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-[#E1E5E8] rounded-full"
                               >
-                                <X size={12} strokeWidth={1.5} />
+                                <X size={10} strokeWidth={1.5} className="md:w-3 md:h-3" />
                               </button>
                             </div>
                           ))}
@@ -676,7 +679,7 @@ export default function App() {
                         <div className="relative mt-1">
                           <button
                             type="button"
-                            className="w-full py-3 border border-dashed border-[#B8C0C7] text-[13px] font-bold tracking-widest text-[#A9B1B8] hover:text-[#4A4F55] hover:border-[#A9B1B8] transition-colors bg-[#F8F9FA]/50"
+                            className="w-full py-2.5 md:py-3 border border-dashed border-[#B8C0C7] text-[12px] md:text-[13px] font-bold tracking-widest text-[#A9B1B8] hover:text-[#4A4F55] hover:border-[#A9B1B8] transition-colors bg-[#F8F9FA]/50"
                             disabled={isUploading}
                           >
                             + 附加相片
@@ -695,45 +698,45 @@ export default function App() {
                   </div>
 
                   {/* 右側：資料輸入 */}
-                  <div className="flex flex-col gap-6">
-                    <div className="flex flex-col gap-2 border-b border-[#E1E5E8] pb-2">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                  <div className="flex flex-col gap-5 md:gap-6">
+                    <div className="flex flex-col gap-1.5 border-b border-[#E1E5E8] pb-1.5 md:pb-2">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                         品牌
                       </label>
                       <input
                         type="text"
                         value={newItem.brand}
                         onChange={(e) => setNewItem({ ...newItem, brand: e.target.value })}
-                        className="w-full py-1.5 focus:outline-none bg-transparent text-[#4A4F55] text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
+                        className="w-full py-1 focus:outline-none bg-transparent text-[#4A4F55] text-[14px] md:text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
                         placeholder="例如：Misha & Puff"
                         disabled={isUploading}
                       />
                     </div>
                     
-                    <div className="flex flex-col gap-2 border-b border-[#E1E5E8] pb-2">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    <div className="flex flex-col gap-1.5 border-b border-[#E1E5E8] pb-1.5 md:pb-2">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                         尺寸
                       </label>
                       <input
                         type="text"
                         value={newItem.size}
                         onChange={(e) => setNewItem({ ...newItem, size: e.target.value })}
-                        className="w-full py-1.5 focus:outline-none bg-transparent text-[#4A4F55] text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
+                        className="w-full py-1 focus:outline-none bg-transparent text-[#4A4F55] text-[14px] md:text-[15px] font-bold tracking-widest placeholder-[#B8C0C7]"
                         placeholder="例如：2"
                         disabled={isUploading}
                       />
                     </div>
 
-                    <div className="flex flex-col gap-3">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">季節</label>
-                      <div className="flex gap-5">
+                    <div className="flex flex-col gap-2 md:gap-3">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">季節</label>
+                      <div className="flex gap-4 md:gap-5">
                         {["春夏", "秋冬", "四季"].map((s) => (
                           <button
                             key={s}
                             type="button"
                             disabled={isUploading}
                             onClick={() => setNewItem({ ...newItem, season: s })}
-                            className={`pb-1 text-[14px] font-bold tracking-widest border-b-2 transition-all ${
+                            className={`pb-0.5 text-[13px] md:text-[14px] font-bold tracking-widest border-b-2 transition-all ${
                               newItem.season === s
                                 ? "text-[#4A4F55] border-[#4A4F55]"
                                 : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
@@ -745,16 +748,16 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-3">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">狀態</label>
-                      <div className="flex flex-wrap gap-5">
+                    <div className="flex flex-col gap-2 md:gap-3">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">狀態</label>
+                      <div className="flex flex-wrap gap-4 md:gap-5">
                         {["未售出", "囤貨", "待售", "售出"].map((s) => (
                           <button
                             key={s}
                             type="button"
                             disabled={isUploading}
                             onClick={() => setNewItem({ ...newItem, status: s })}
-                            className={`pb-1 text-[14px] font-bold tracking-widest border-b-2 transition-all ${
+                            className={`pb-0.5 text-[13px] md:text-[14px] font-bold tracking-widest border-b-2 transition-all ${
                               newItem.status === s
                                 ? "text-[#4A4F55] border-[#4A4F55]"
                                 : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
@@ -766,14 +769,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 flex-grow border-t border-[#EBEDF0] pt-4">
-                      <label className="text-[13px] font-bold tracking-widest text-[#838A91]">
+                    <div className="flex flex-col gap-2 flex-grow border-t border-[#EBEDF0] pt-3 md:pt-4">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
                         紀實
                       </label>
                       <textarea
                         value={newItem.notes}
                         onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })}
-                        className="w-full h-full min-h-[90px] resize-none focus:outline-none bg-transparent text-[#4A4F55] text-[14px] leading-relaxed placeholder-[#B8C0C7] tracking-wide font-medium"
+                        className="w-full h-full min-h-[80px] md:min-h-[90px] resize-none focus:outline-none bg-transparent text-[#4A4F55] text-[13px] md:text-[14px] leading-relaxed placeholder-[#B8C0C7] tracking-wide font-medium"
                         placeholder="寫下這件衣服的紀錄..."
                         disabled={isUploading}
                       />
@@ -781,11 +784,11 @@ export default function App() {
                   </div>
 
                   {/* 儲存按鈕 */}
-                  <div className="md:col-span-2 flex justify-start mt-4">
+                  <div className="md:col-span-2 flex justify-start mt-2 md:mt-4">
                     <button
                       type="submit"
                       disabled={isUploading}
-                      className={`bg-[#4A4F55] text-white text-[13px] font-bold tracking-[0.3em] px-16 py-3.5 hover:bg-[#3B3E42] transition-colors shadow-sm border border-transparent flex items-center justify-center min-w-[200px] ${
+                      className={`w-full md:w-auto bg-[#4A4F55] text-white text-[12px] md:text-[13px] font-bold tracking-[0.3em] px-16 py-3 md:py-3.5 hover:bg-[#3B3E42] transition-colors shadow-sm border border-transparent flex items-center justify-center min-w-[200px] ${
                         isUploading ? "opacity-70 cursor-not-allowed" : ""
                       }`}
                     >
@@ -802,66 +805,66 @@ export default function App() {
               </div>
             )}
 
-            {/* 分類導覽區塊 (無框線，純文字列表式) */}
-            <div className="flex flex-col gap-6 mb-10 border-b border-[#E1E5E8] pb-6 w-full">
+            {/* 分類導覽區塊 */}
+            <div className="flex flex-col gap-4 md:gap-6 mb-8 md:mb-10 border-b border-[#E1E5E8] pb-5 md:pb-6 w-full">
               {/* 品牌分類 */}
-              <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
-                <span className="text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-2 min-w-[90px]">
-                  <Tag size={16} className="text-[#B8C0C7]"/> 品牌
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                <span className="text-[13px] md:text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-1.5 md:gap-2 min-w-[90px]">
+                  <Tag size={14} className="text-[#B8C0C7] md:w-4 md:h-4"/> 品牌
                 </span>
-                <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
+                <div className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
                   {brandData.list.map((b) => (
                     <button
                       key={b}
                       onClick={() => setFilterBrand(b)}
-                      className={`whitespace-nowrap px-3 py-1.5 text-[14px] tracking-widest transition-all border-b-2 ${
+                      className={`whitespace-nowrap px-2.5 py-1 md:px-3 md:py-1.5 text-[13px] md:text-[14px] tracking-widest transition-all border-b-2 ${
                         filterBrand === b
                           ? "text-[#4A4F55] border-[#4A4F55] font-bold"
                           : "text-[#A9B1B8] border-transparent hover:text-[#4A4F55] font-medium"
                       }`}
                     >
-                      {b} <span className={`ml-1 text-[12px] ${filterBrand === b ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({brandData.counts[b]})</span>
+                      {b} <span className={`ml-1 text-[11px] md:text-[12px] ${filterBrand === b ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({brandData.counts[b]})</span>
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* 狀態分類 */}
-              <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
-                <span className="text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-2 min-w-[90px]">
-                  <Archive size={16} className="text-[#B8C0C7]"/> 狀態
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                <span className="text-[13px] md:text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-1.5 md:gap-2 min-w-[90px]">
+                  <Archive size={14} className="text-[#B8C0C7] md:w-4 md:h-4"/> 狀態
                 </span>
-                <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
+                <div className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
                   {statusData.list.map((s) => (
                     <button
                       key={s}
                       onClick={() => setFilterStatus(s)}
-                      className={`whitespace-nowrap px-3 py-1.5 text-[14px] tracking-widest transition-all border-b-2 ${
+                      className={`whitespace-nowrap px-2.5 py-1 md:px-3 md:py-1.5 text-[13px] md:text-[14px] tracking-widest transition-all border-b-2 ${
                         filterStatus === s
                           ? "text-[#4A4F55] border-[#4A4F55] font-bold"
                           : "text-[#A9B1B8] border-transparent hover:text-[#4A4F55] font-medium"
                       }`}
                     >
-                      {s} <span className={`ml-1 text-[12px] ${filterStatus === s ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({statusData.counts[s]})</span>
+                      {s} <span className={`ml-1 text-[11px] md:text-[12px] ${filterStatus === s ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({statusData.counts[s]})</span>
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* 列表區塊 (緊密卡片排列) */}
+            {/* 列表區塊 (響應式：手機版調整為較小巧緊密的 2~3 排列，圖片比例 4:5) */}
             {isLoading ? (
               <div className="py-24 flex justify-center">
-                <span className="text-[14px] font-bold tracking-[0.25em] text-[#A9B1B8] animate-pulse">典藏庫載入中...</span>
+                <span className="text-[13px] md:text-[14px] font-bold tracking-[0.25em] text-[#A9B1B8] animate-pulse">典藏庫載入中...</span>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 md:gap-x-6 gap-y-10">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-3 gap-y-6 md:gap-x-6 md:gap-y-10">
                 {filteredClothes.length === 0 ? (
                   <div className="col-span-full py-24 flex flex-col items-center justify-center text-center">
-                    <div className="text-[#E1E5E8] mb-5">
-                      <ImageIcon size={48} strokeWidth={1} />
+                    <div className="text-[#E1E5E8] mb-4 md:mb-5">
+                      <ImageIcon size={40} strokeWidth={1} className="md:w-12 md:h-12" />
                     </div>
-                    <div className="text-[#A9B1B8] text-[14px] font-bold tracking-[0.2em]">
+                    <div className="text-[#A9B1B8] text-[13px] md:text-[14px] font-bold tracking-[0.2em]">
                       目前尚無紀錄
                     </div>
                   </div>
@@ -870,15 +873,14 @@ export default function App() {
                     <div
                       key={item.id}
                       onClick={() => setSelectedItem(item)}
-                      className="group flex flex-col cursor-pointer bg-white p-3 shadow-sm border border-[#E1E5E8] hover:shadow-md transition-all duration-300"
+                      className="group flex flex-col cursor-pointer bg-white p-2.5 md:p-3 shadow-sm border border-[#E1E5E8] hover:shadow-md transition-all duration-300"
                     >
-                      {/* 照片框 (純方角) */}
-                      <div className="aspect-square bg-[#F8F9FA] overflow-hidden relative mb-3 border border-[#EBEDF0]">
+                      {/* 照片框 (改為 4:5 服飾型錄最佳比例，在手機上更修長秀氣) */}
+                      <div className="aspect-[4/5] bg-[#F8F9FA] overflow-hidden relative mb-2.5 md:mb-3 border border-[#EBEDF0]">
                         {item.image ? (
                           <img
                             src={item.image}
                             alt="Gallery item"
-                            // 加入防破圖處理，如果網址失效就顯示預設圖示
                             onError={(e) => {
                               e.target.onerror = null; 
                               e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23B8C0C7' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'/%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'/%3E%3Cpolyline points='21 15 16 10 5 21'/%3E%3C/svg%3E";
@@ -887,26 +889,26 @@ export default function App() {
                           />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center text-[#B8C0C7]">
-                            <ImageIcon size={28} strokeWidth={1} />
+                            <ImageIcon size={24} strokeWidth={1} className="md:w-7 md:h-7" />
                           </div>
                         )}
 
                         {/* 左下角：精緻的浮水印尺寸標籤 */}
                         {item.size && (
-                          <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-sm text-[#4A4F55] border border-white/80 text-[11px] tracking-widest px-2.5 py-1 shadow-sm z-10 font-bold">
+                          <div className="absolute bottom-1.5 left-1.5 md:bottom-2 md:left-2 bg-white/90 backdrop-blur-sm text-[#4A4F55] border border-white/80 text-[10px] md:text-[11px] tracking-widest px-2 py-0.5 md:px-2.5 md:py-1 shadow-sm z-10 font-bold">
                             尺寸 {item.size}
                           </div>
                         )}
 
                         {/* 右上角：狀態與季節標籤 */}
-                        <div className="absolute top-2 right-2 flex gap-1 items-start z-10 flex-col">
+                        <div className="absolute top-1.5 right-1.5 md:top-2 md:right-2 flex gap-1 items-start z-10 flex-col">
                           {item.season && (
-                            <span className={`shadow-sm text-[9px] tracking-[0.15em] font-semibold px-2 py-0.5 border ${getSeasonColor(item.season)}`}>
+                            <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getSeasonColor(item.season)}`}>
                               {item.season}
                             </span>
                           )}
                           {item.status && (
-                            <span className={`shadow-sm text-[9px] tracking-[0.15em] font-semibold px-2 py-0.5 border ${getStatusColor(item.status)}`}>
+                            <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getStatusColor(item.status)}`}>
                               {item.status}
                             </span>
                           )}
@@ -914,16 +916,16 @@ export default function App() {
 
                         {/* 管理員操作 (僅在解鎖狀態下顯示) */}
                         {!isReadOnly && isAuthenticated && (
-                          <div className="absolute bottom-2 right-2 opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex gap-1.5 z-20">
+                          <div className="absolute bottom-1.5 right-1.5 md:bottom-2 md:right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex gap-1.5 z-20">
                             <button
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 handleEdit(item);
                               }}
-                              className="bg-white/95 text-[#A9B1B8] p-2 hover:text-[#4A4F55] transition-colors shadow-sm border border-[#E1E5E8]"
+                              className="bg-white/95 text-[#A9B1B8] p-1.5 md:p-2 hover:text-[#4A4F55] transition-colors shadow-sm border border-[#E1E5E8]"
                             >
-                              <Edit2 size={14} strokeWidth={1.5} />
+                              <Edit2 size={12} strokeWidth={1.5} className="md:w-3.5 md:h-3.5" />
                             </button>
                             <button
                               onClick={(e) => {
@@ -931,17 +933,17 @@ export default function App() {
                                 e.stopPropagation();
                                 setItemToDelete(item);
                               }}
-                              className="bg-white/95 text-[#A9B1B8] p-2 hover:text-[#AF7C83] transition-colors shadow-sm border border-[#E1E5E8]"
+                              className="bg-white/95 text-[#A9B1B8] p-1.5 md:p-2 hover:text-[#AF7C83] transition-colors shadow-sm border border-[#E1E5E8]"
                             >
-                              <Trash2 size={14} strokeWidth={1.5} />
+                              <Trash2 size={12} strokeWidth={1.5} className="md:w-3.5 md:h-3.5" />
                             </button>
                           </div>
                         )}
                       </div>
                       
                       {/* 卡片文字區 */}
-                      <div className="flex flex-col items-center text-center px-1 pb-1">
-                        <h3 className="text-[#4A4F55] text-[15px] tracking-[0.15em] truncate w-full font-bold">
+                      <div className="flex flex-col items-center text-center px-0.5 md:px-1 pb-0.5 md:pb-1">
+                        <h3 className="text-[#4A4F55] text-[13px] md:text-[15px] tracking-[0.15em] truncate w-full font-bold">
                           {item.brand}
                         </h3>
                       </div>
