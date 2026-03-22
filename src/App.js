@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Camera,
   Plus,
@@ -13,7 +13,8 @@ import {
   XCircle,
   Tag,
   Archive,
-  Lock
+  Lock,
+  Layers
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -59,6 +60,8 @@ export default function App() {
 
   const [filterBrand, setFilterBrand] = useState("全部");
   const [filterStatus, setFilterStatus] = useState("全部");
+  const [filterType, setFilterType] = useState("全部"); // 新增：版型分類過濾
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -75,6 +78,7 @@ export default function App() {
   const defaultFormState = {
     brand: "",
     size: "",
+    type: "上衣", // 新增：預設版型
     status: "未售出",
     notes: "",
     image: null,
@@ -82,28 +86,36 @@ export default function App() {
   };
   const [newItem, setNewItem] = useState(defaultFormState);
 
+  // --- 拖拉排序狀態 (Drag and Drop & Touch) ---
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [isTouchDragging, setIsTouchDragging] = useState(false);
+  const touchTimeoutRef = useRef(null);
+
+  // 判斷是否允許排序：只有在完全無過濾、且為管理員時才允許拖拉
+  const canDrag = isAuthenticated && !isReadOnly && filterBrand === "全部" && filterStatus === "全部" && filterType === "全部";
+
   useEffect(() => {
     const clothesRef = collection(db, "clothes");
+    // 取得資料後，會在記憶體中根據 order 排序
     const q = query(clothesRef, orderBy("createdAt", "desc"), limit(150));
 
     const unsubscribeClothes = onSnapshot(
       q,
       (snapshot) => {
         const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        // 依照自訂順序 (order) 排序。若無 order，則用建立時間墊底。
+        data.sort((a, b) => {
+          const orderA = a.order !== undefined ? a.order : 999999;
+          const orderB = b.order !== undefined ? b.order : 999999;
+          if (orderA !== orderB) return orderA - orderB;
+          return b.createdAt - a.createdAt;
+        });
         setClothes(data);
         setIsLoading(false);
       },
       (error) => {
         console.error("讀取資料失敗:", error);
-        // Fallback for missing indexes
-        const fallbackUnsub = onSnapshot(clothesRef, (snap) => {
-          const data = snap.docs
-            .map((doc) => ({ id: doc.id, ...doc.data() }))
-            .sort((a, b) => b.createdAt - a.createdAt);
-          setClothes(data);
-          setIsLoading(false);
-        });
-        return () => fallbackUnsub();
+        setIsLoading(false);
       }
     );
 
@@ -120,44 +132,50 @@ export default function App() {
       uniqueBrands.add(b);
       counts[b] = (counts[b] || 0) + 1;
     });
-    return {
-      list: ["全部", ...Array.from(uniqueBrands).sort()],
-      counts
-    };
+    return { list: ["全部", ...Array.from(uniqueBrands).sort()], counts };
   }, [clothes]);
 
   const statusData = useMemo(() => {
     const counts = { '全部': clothes.length, '未售出': 0, '囤貨': 0, '待售': 0, '售出': 0 };
     clothes.forEach(c => {
       const s = c.status || '未售出';
-      if (counts[s] !== undefined) {
-        counts[s]++;
-      } else {
-        counts[s] = 1;
-      }
+      if (counts[s] !== undefined) counts[s]++;
+      else counts[s] = 1;
     });
-    return {
-      list: ["全部", "未售出", "囤貨", "待售", "售出"],
-      counts
-    };
+    return { list: ["全部", "未售出", "囤貨", "待售", "售出"], counts };
+  }, [clothes]);
+
+  // 新增：版型類型資料計算
+  const typeData = useMemo(() => {
+    const counts = { '全部': clothes.length };
+    const uniqueTypes = new Set();
+    clothes.forEach(c => {
+      const t = c.type || '未分類';
+      uniqueTypes.add(t);
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    const predefined = ["套裝", "上衣", "洋裝", "制服", "圍裙", "背心洋", "魚尾洋"];
+    const list = ["全部", ...predefined.filter(p => uniqueTypes.has(p)), ...Array.from(uniqueTypes).filter(t => !predefined.includes(t))];
+    return { list, counts };
   }, [clothes]);
 
   const filteredClothes = useMemo(() => {
     return clothes.filter((c) => {
       const b = (c.brand && c.brand.trim() !== "") ? c.brand.trim() : '無品牌';
+      const t = c.type || '未分類';
       return (
         (filterBrand === "全部" || b === filterBrand) &&
-        (filterStatus === "全部" || c.status === filterStatus)
+        (filterStatus === "全部" || c.status === filterStatus) &&
+        (filterType === "全部" || t === filterType)
       );
     });
-  }, [clothes, filterBrand, filterStatus]);
+  }, [clothes, filterBrand, filterStatus, filterType]);
 
   const showToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(""), 4000);
   };
 
-  // --- 管理員密碼驗證 ---
   const handleLogin = (e) => {
     e.preventDefault();
     if (inputPassword === "0602") {
@@ -166,6 +184,86 @@ export default function App() {
     } else {
       showToast("密碼錯誤，請重新輸入");
       setInputPassword("");
+    }
+  };
+
+  // --- 拖拉排序核心邏輯 ---
+  const handleDragStart = (e, index) => {
+    if (!canDrag) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/html", index); // Firefox 需要這個才能拖拉
+  };
+
+  const handleDragEnter = (e, index) => {
+    if (!canDrag || draggedIndex === null || draggedIndex === index) return;
+    const newClothes = [...clothes];
+    const draggedItem = newClothes[draggedIndex];
+    newClothes.splice(draggedIndex, 1);
+    newClothes.splice(index, 0, draggedItem);
+    setDraggedIndex(index);
+    setClothes(newClothes); // 即時更新畫面位置
+  };
+
+  const handleDragEnd = async () => {
+    if (!canDrag || draggedIndex === null) return;
+    setDraggedIndex(null);
+    setIsTouchDragging(false);
+
+    // 將新的順序寫回資料庫
+    clothes.forEach((item, idx) => {
+      if (item.order !== idx) {
+        updateDoc(doc(db, "clothes", item.id), { order: idx }).catch(err => console.error(err));
+        item.order = idx; // 同步更新本機狀態防跳動
+      }
+    });
+    showToast("排序已儲存");
+  };
+
+  // --- 手機版長按拖拉支援 (Touch Events) ---
+  const handleTouchStart = (e, index) => {
+    if (!canDrag || e.touches.length > 1) return;
+    // 長按 0.5 秒才觸發拖拉，避免影響正常滑動網頁
+    touchTimeoutRef.current = setTimeout(() => {
+      setDraggedIndex(index);
+      setIsTouchDragging(true);
+      if (navigator.vibrate) navigator.vibrate(40); // 輕微震動回饋
+    }, 500);
+  };
+
+  const handleTouchMove = (e) => {
+    if (isTouchDragging) {
+      e.preventDefault(); // 阻止螢幕跟著滑動
+      const touch = e.touches[0];
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (target) {
+        const card = target.closest('.draggable-card');
+        if (card) {
+          const hoverIndex = parseInt(card.dataset.index, 10);
+          if (!isNaN(hoverIndex) && hoverIndex !== draggedIndex) {
+            handleDragEnter(e, hoverIndex);
+          }
+        }
+      }
+    } else {
+      // 提早滑動，取消長按判定
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+        touchTimeoutRef.current = null;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+      touchTimeoutRef.current = null;
+    }
+    if (isTouchDragging) {
+      handleDragEnd();
     }
   };
 
@@ -289,7 +387,10 @@ export default function App() {
         additionalImages: addImageUrls,
         brand: newItem.brand || "無品牌",
         status: newItem.status || "未售出",
+        type: newItem.type || "上衣", // 儲存版型
         updatedAt: Date.now(),
+        // 核心：給予極小的負數 order 值，保證新衣服一律排在最前面
+        order: editingId ? newItem.order : -Date.now()
       };
 
       if (editingId) {
@@ -300,7 +401,7 @@ export default function App() {
           ...dataToSave,
           createdAt: Date.now(),
         });
-        showToast("已成功收錄至衣櫥！重新整理也不會消失了。");
+        showToast("已成功收錄至衣櫥！");
       }
       
       setNewItem(defaultFormState);
@@ -337,18 +438,30 @@ export default function App() {
     showToast("鑑賞連結已複製！現在朋友點開都能看到圖片了");
   };
 
-  // --- 改良版狀態色系：四種不同質感的莫蘭迪/清水模色 ---
   const getStatusColor = (status) => {
     switch (status) {
-      case "未售出": return "text-[#6E8F7A] border-[#D1E0D6] bg-[#F1F7F3]"; // 莫蘭迪綠
-      case "囤貨": return "text-[#728491] border-[#CFD8E1] bg-[#F2F6F9]"; // 灰藍色
-      case "待售": return "text-[#B8866D] border-[#EBD6C8] bg-[#FBF5F1]"; // 奶茶磚色
-      case "售出": return "text-[#7B7B7B] border-[#D6D6D6] bg-[#F4F4F4]"; // 質感灰
-      default: return "text-[#AF7C83] border-[#F0D5D8] bg-[#FDF7F8]"; // 玫瑰粉 (防呆)
+      case "未售出": return "text-[#6E8F7A] border-[#D1E0D6] bg-[#F1F7F3]"; 
+      case "囤貨": return "text-[#728491] border-[#CFD8E1] bg-[#F2F6F9]"; 
+      case "待售": return "text-[#B8866D] border-[#EBD6C8] bg-[#FBF5F1]"; 
+      case "售出": return "text-[#7B7B7B] border-[#D6D6D6] bg-[#F4F4F4]"; 
+      default: return "text-[#AF7C83] border-[#F0D5D8] bg-[#FDF7F8]"; 
     }
   };
 
-  // --- 大理石灰白渲染與和風紋理底圖 ---
+  // --- 新增：版型類型日系溫柔配色 ---
+  const getTypeColor = (type) => {
+    switch (type) {
+      case "套裝": return "text-[#7A7A7A] border-[#E8E8E8] bg-[#F4F1ED]"; 
+      case "上衣": return "text-[#8C7B70] border-[#E6DFD8] bg-[#F9F6F0]"; 
+      case "洋裝": return "text-[#9A7F82] border-[#EADEE0] bg-[#F7F2F3]"; 
+      case "制服": return "text-[#6A7887] border-[#D3D9E0] bg-[#F0F2F5]"; 
+      case "圍裙": return "text-[#A68F58] border-[#EBE3D1] bg-[#F8F4E6]"; 
+      case "背心洋": return "text-[#857469] border-[#E0D8D3] bg-[#F3EFEA]"; 
+      case "魚尾洋": return "text-[#708085] border-[#D6DFE3] bg-[#EDF1F3]"; 
+      default: return "text-[#9B9084] border-[#EAE6E1] bg-[#F9F8F6]"; 
+    }
+  };
+
   const marbleWashiBg = {
     backgroundColor: "#FCFCFC",
     backgroundImage: `
@@ -365,7 +478,6 @@ export default function App() {
   return (
     <div
       style={marbleWashiBg}
-      // 優化外層 padding，讓手機版有更好的閱讀呼吸空間
       className={`min-h-screen text-[#4A4F55] font-serif p-3 md:p-10 relative selection:bg-[#E1E5E8] selection:text-[#4A4F55] ${
         selectedItem || (!isReadOnly && !isAuthenticated) ? "overflow-hidden h-screen" : ""
       }`}
@@ -373,7 +485,7 @@ export default function App() {
       {/* 浮動提示框 */}
       {toastMsg && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-md text-[#4A4F55] border border-[#E1E5E8] px-8 py-3 shadow-[0_4px_15px_rgba(0,0,0,0.03)] z-50 flex items-center gap-3 animate-fade-in text-[13px] tracking-widest font-medium w-max max-w-[90vw]">
-          {toastMsg.includes("已") || toastMsg.includes("收錄") || toastMsg.includes("複製") || toastMsg.includes("成功") ? (
+          {toastMsg.includes("已") || toastMsg.includes("收錄") || toastMsg.includes("複製") || toastMsg.includes("成功") || toastMsg.includes("排序") ? (
             <CheckCircle size={16} className="text-[#A9B1B8]" strokeWidth={1.5} />
           ) : (
             <Info size={16} className="text-[#A9B1B8]" strokeWidth={1.5} />
@@ -382,7 +494,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- 管理員登入畫面防護 (如果不是訪客模式，且尚未登入) --- */}
+      {/* --- 管理員登入畫面防護 --- */}
       {!isReadOnly && !isAuthenticated ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
           <div className="bg-white/85 backdrop-blur-md p-8 md:p-14 border border-[#E1E5E8] max-w-[420px] w-full text-center shadow-[0_15px_50px_rgba(0,0,0,0.06)] animate-fade-in flex flex-col items-center">
@@ -421,13 +533,10 @@ export default function App() {
       ) : (
         /* --- 驗證通過後的正式內容 --- */
         <>
-          {/* 客製化刪除確認視窗 */}
           {itemToDelete && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-sm p-4 animate-fade-in">
               <div className="bg-white/95 backdrop-blur-md p-8 border border-[#E1E5E8] max-w-sm w-full text-center shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
-                <h3 className="text-[16px] font-bold text-[#4A4F55] mb-3 tracking-widest">
-                  確認移除
-                </h3>
+                <h3 className="text-[16px] font-bold text-[#4A4F55] mb-3 tracking-widest">確認移除</h3>
                 <p className="text-[13px] text-[#838A91] mb-8 font-medium tracking-wide leading-relaxed">
                   確定要將「{itemToDelete.brand || '此紀錄'}」從衣櫥中移除嗎？<br />此操作無法復原。
                 </p>
@@ -452,7 +561,7 @@ export default function App() {
             </div>
           )}
 
-          {/* 圖片細節 Modal (優雅藝廊模式) */}
+          {/* 圖片細節 Modal */}
           {selectedItem && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-12 bg-[#F8F9FA]/90 backdrop-blur-md animate-fade-in">
               <button
@@ -463,8 +572,6 @@ export default function App() {
               </button>
 
               <div className="w-full h-full md:h-auto md:max-h-[85vh] max-w-[1000px] flex flex-col md:flex-row relative bg-white md:shadow-[0_15px_50px_rgba(0,0,0,0.06)] overflow-hidden border border-[#E1E5E8]">
-                
-                {/* 左側照片區 (手機版限制高度，避免撐滿全螢幕) */}
                 <div className="w-full md:w-[55%] bg-[#F8F9FA] overflow-y-auto max-h-[50vh] md:max-h-full scrollbar-hide flex flex-col justify-start md:justify-center border-b md:border-b-0 md:border-r border-[#E1E5E8]">
                   {selectedItem.image && (
                     <div className="p-6 md:p-12 relative flex justify-center w-full">
@@ -475,10 +582,8 @@ export default function App() {
                           e.target.onerror = null; 
                           e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23B8C0C7' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'/%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'/%3E%3Cpolyline points='21 15 16 10 5 21'/%3E%3C/svg%3E";
                         }}
-                        // 響應式優化：手機版 max-h-[40vh] 防止過大，電腦版 max-h-[75vh]
                         className="max-h-[40vh] md:max-h-[75vh] w-auto mx-auto object-contain shadow-sm"
                       />
-                      {/* 大尺寸浮水顯示 */}
                       {selectedItem.size && (
                         <div className="absolute bottom-4 left-4 md:bottom-8 md:left-8 bg-white/90 backdrop-blur-md text-[#4A4F55] px-3 py-1.5 md:px-4 md:py-2 shadow-sm border border-[#E1E5E8] text-[12px] md:text-[13px] tracking-widest font-bold">
                           尺寸：{selectedItem.size}
@@ -501,9 +606,14 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 右側資訊區 */}
                 <div className="w-full md:w-[45%] p-6 md:p-12 flex flex-col bg-white overflow-y-auto max-h-[50vh] md:max-h-full">
                   <div className="flex flex-wrap gap-2.5 mb-5 md:mb-6">
+                    {/* 更新：顯示版型分類與狀態 */}
+                    {selectedItem.type && (
+                      <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getTypeColor(selectedItem.type)}`}>
+                        {selectedItem.type}
+                      </span>
+                    )}
                     {selectedItem.status && (
                       <span className={`text-[11px] md:text-[12px] tracking-[0.2em] font-semibold px-2.5 py-1 border ${getStatusColor(selectedItem.status)}`}>
                         {selectedItem.status}
@@ -535,15 +645,18 @@ export default function App() {
 
           {/* 主內容區 */}
           <div className="max-w-[1200px] mx-auto pt-2 md:pt-10 relative z-10">
-            
-            {/* Header 區塊 */}
             <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 md:mb-10 pb-5 md:pb-6 border-b border-[#E1E5E8] gap-4 md:gap-6">
-              <div className="w-full md:max-w-2xl text-left">
+              <div className="w-full md:max-w-2xl text-left flex flex-col items-start gap-4">
                 {isReadOnly && (
-                  <div className="text-[#A9B1B8] text-[11px] md:text-[12px] tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2 bg-white/50 backdrop-blur-sm w-fit px-3 py-1.5 md:px-4 border border-[#E1E5E8]">
+                  <div className="text-[#A9B1B8] text-[11px] md:text-[12px] tracking-[0.2em] flex items-center gap-2 bg-white/50 backdrop-blur-sm w-fit px-3 py-1.5 md:px-4 border border-[#E1E5E8]">
                     <Info size={14} />
                     <span>訪客鑑賞模式</span>
                   </div>
+                )}
+                {canDrag && (
+                   <div className="text-[#A9B1B8] text-[11px] md:text-[12px] tracking-[0.2em] flex items-center gap-2 bg-[#F8F9FA]/80 backdrop-blur-sm w-fit px-3 py-1.5 md:px-4 border border-[#E1E5E8] shadow-sm">
+                     <span className="animate-pulse flex items-center gap-1.5"><Info size={12}/> 長按圖卡可拖曳排序</span>
+                   </div>
                 )}
                 
                 <div className="group relative inline-block text-left w-full mt-2 md:mt-0">
@@ -596,7 +709,6 @@ export default function App() {
                 </h3>
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
-                  {/* 左側：照片上傳 */}
                   <div className="flex flex-col gap-5 md:gap-6">
                     <div className="flex flex-col gap-2 md:gap-3">
                       <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">
@@ -645,11 +757,7 @@ export default function App() {
                         <div className="flex gap-2.5 overflow-x-auto pt-2 pb-1">
                           {newItem.additionalImages.map((img, idx) => (
                             <div key={idx} className="relative w-16 h-16 md:w-20 md:h-20 flex-shrink-0 border border-[#E1E5E8] p-1 bg-white group">
-                              <img
-                                src={img}
-                                alt="Additional"
-                                className="w-full h-full object-cover"
-                              />
+                              <img src={img} alt="Additional" className="w-full h-full object-cover" />
                               <button
                                 type="button"
                                 onClick={() => removeAdditionalImage(idx)}
@@ -714,7 +822,29 @@ export default function App() {
                       />
                     </div>
 
+                    {/* 更新：版型選擇器 */}
                     <div className="flex flex-col gap-2 md:gap-3">
+                      <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">版型分類</label>
+                      <div className="flex flex-wrap gap-3 md:gap-4">
+                        {["套裝", "上衣", "洋裝", "制服", "圍裙", "背心洋", "魚尾洋"].map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            disabled={isUploading}
+                            onClick={() => setNewItem({ ...newItem, type: t })}
+                            className={`pb-0.5 text-[13px] md:text-[14px] font-bold tracking-widest border-b-2 transition-all ${
+                              newItem.type === t
+                                ? "text-[#4A4F55] border-[#4A4F55]"
+                                : "text-[#A9B1B8] border-transparent hover:text-[#838A91]"
+                            }`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 md:gap-3 mt-1">
                       <label className="text-[12px] md:text-[13px] font-bold tracking-widest text-[#838A91]">狀態</label>
                       <div className="flex flex-wrap gap-4 md:gap-5">
                         {["未售出", "囤貨", "待售", "售出"].map((s) => (
@@ -749,7 +879,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 儲存按鈕 */}
                   <div className="md:col-span-2 flex justify-start mt-2 md:mt-4">
                     <button
                       type="submit"
@@ -795,6 +924,28 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 更新：版型分類過濾列 */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                <span className="text-[13px] md:text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-1.5 md:gap-2 min-w-[90px]">
+                  <Layers size={14} className="text-[#B8C0C7] md:w-4 md:h-4"/> 版型
+                </span>
+                <div className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide pb-2 md:pb-0 w-full">
+                  {typeData.list.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setFilterType(t)}
+                      className={`whitespace-nowrap px-2.5 py-1 md:px-3 md:py-1.5 text-[13px] md:text-[14px] tracking-widest transition-all border-b-2 ${
+                        filterType === t
+                          ? "text-[#4A4F55] border-[#4A4F55] font-bold"
+                          : "text-[#A9B1B8] border-transparent hover:text-[#4A4F55] font-medium"
+                      }`}
+                    >
+                      {t} <span className={`ml-1 text-[11px] md:text-[12px] ${filterType === t ? "text-[#838A91]" : "text-[#B8C0C7]"}`}>({typeData.counts[t]})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* 狀態分類 */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
                 <span className="text-[13px] md:text-[14px] tracking-widest text-[#838A91] font-bold flex items-center gap-1.5 md:gap-2 min-w-[90px]">
@@ -818,7 +969,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 列表區塊 (響應式：手機版調整為較小巧緊密的 2~3 排列，圖片比例 4:5) */}
+            {/* 列表區塊 */}
             {isLoading ? (
               <div className="py-24 flex justify-center">
                 <span className="text-[13px] md:text-[14px] font-bold tracking-[0.25em] text-[#A9B1B8] animate-pulse">典藏庫載入中...</span>
@@ -835,13 +986,30 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  filteredClothes.map((item) => (
+                  filteredClothes.map((item, index) => (
                     <div
                       key={item.id}
+                      data-index={index}
+                      // 拖拉核心屬性與事件
+                      draggable={canDrag}
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragEnter={(e) => handleDragEnter(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => { if(canDrag) e.preventDefault(); }}
+                      onTouchStart={(e) => handleTouchStart(e, index)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
                       onClick={() => setSelectedItem(item)}
-                      className="group flex flex-col cursor-pointer bg-white p-2.5 md:p-3 shadow-sm border border-[#E1E5E8] hover:shadow-md transition-all duration-300"
+                      className={`draggable-card group flex flex-col cursor-pointer bg-white p-2.5 md:p-3 shadow-sm border hover:shadow-md transition-all duration-300 select-none ${
+                        draggedIndex === index ? 'opacity-40 scale-95 border-dashed border-[#A9B1B8]' : 'border-[#E1E5E8] opacity-100'
+                      } ${isTouchDragging && draggedIndex === index ? 'shadow-2xl scale-[1.02] z-40 relative' : ''}`}
+                      style={{ 
+                        // 手機拖拉時防止網頁跟著捲動
+                        touchAction: (isTouchDragging && draggedIndex === index) ? 'none' : 'pan-y',
+                        WebkitUserSelect: 'none', WebkitTouchCallout: 'none'
+                      }}
                     >
-                      {/* 照片框 (改為 4:5 服飾型錄最佳比例，在手機上更修長秀氣) */}
+                      {/* 照片框 */}
                       <div className="aspect-[4/5] bg-[#F8F9FA] overflow-hidden relative mb-2.5 md:mb-3 border border-[#EBEDF0]">
                         {item.image ? (
                           <img
@@ -851,7 +1019,7 @@ export default function App() {
                               e.target.onerror = null; 
                               e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23B8C0C7' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'/%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'/%3E%3Cpolyline points='21 15 16 10 5 21'/%3E%3C/svg%3E";
                             }}
-                            className="w-full h-full object-cover opacity-[0.98] group-hover:opacity-100 group-hover:scale-[1.03] transition-transform duration-700 ease-out"
+                            className="w-full h-full object-cover opacity-[0.98] group-hover:opacity-100 group-hover:scale-[1.03] transition-transform duration-700 ease-out pointer-events-none"
                           />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center text-[#B8C0C7]">
@@ -859,15 +1027,19 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* 左下角：精緻的浮水印尺寸標籤 */}
                         {item.size && (
-                          <div className="absolute bottom-1.5 left-1.5 md:bottom-2 md:left-2 bg-white/90 backdrop-blur-sm text-[#4A4F55] border border-white/80 text-[10px] md:text-[11px] tracking-widest px-2 py-0.5 md:px-2.5 md:py-1 shadow-sm z-10 font-bold">
+                          <div className="absolute bottom-1.5 left-1.5 md:bottom-2 md:left-2 bg-white/90 backdrop-blur-sm text-[#4A4F55] border border-white/80 text-[10px] md:text-[11px] tracking-widest px-2 py-0.5 md:px-2.5 md:py-1 shadow-sm z-10 font-bold pointer-events-none">
                             尺寸 {item.size}
                           </div>
                         )}
 
-                        {/* 右上角：狀態與季節標籤 */}
-                        <div className="absolute top-1.5 right-1.5 md:top-2 md:right-2 flex gap-1 items-start z-10 flex-col">
+                        {/* 更新：狀態與版型標籤 */}
+                        <div className="absolute top-1.5 right-1.5 md:top-2 md:right-2 flex gap-1 items-end z-10 flex-col pointer-events-none">
+                          {item.type && (
+                            <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getTypeColor(item.type)}`}>
+                              {item.type}
+                            </span>
+                          )}
                           {item.status && (
                             <span className={`shadow-sm text-[8px] md:text-[9px] tracking-[0.15em] font-semibold px-1.5 py-0.5 md:px-2 border ${getStatusColor(item.status)}`}>
                               {item.status}
@@ -875,13 +1047,11 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* 管理員操作 (僅在解鎖狀態下顯示) */}
                         {!isReadOnly && isAuthenticated && (
                           <div className="absolute bottom-1.5 right-1.5 md:bottom-2 md:right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex gap-1.5 z-20">
                             <button
                               onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                                e.preventDefault(); e.stopPropagation();
                                 handleEdit(item);
                               }}
                               className="bg-white/95 text-[#A9B1B8] p-1.5 md:p-2 hover:text-[#4A4F55] transition-colors shadow-sm border border-[#E1E5E8]"
@@ -890,8 +1060,7 @@ export default function App() {
                             </button>
                             <button
                               onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                                e.preventDefault(); e.stopPropagation();
                                 setItemToDelete(item);
                               }}
                               className="bg-white/95 text-[#A9B1B8] p-1.5 md:p-2 hover:text-[#AF7C83] transition-colors shadow-sm border border-[#E1E5E8]"
@@ -902,7 +1071,6 @@ export default function App() {
                         )}
                       </div>
                       
-                      {/* 卡片文字區 */}
                       <div className="flex flex-col items-center text-center px-0.5 md:px-1 pb-0.5 md:pb-1">
                         <h3 className="text-[#4A4F55] text-[13px] md:text-[15px] tracking-[0.15em] truncate w-full font-bold">
                           {item.brand}
